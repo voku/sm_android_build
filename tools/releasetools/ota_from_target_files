@@ -422,6 +422,15 @@ def WriteFullOTAPackage(input_zip, output_zip):
     i.gid = 0
     i.mode = 0544
   Item.Get("system").SetPermissions(script)
+  Item.Get("system/app").SetPermissions(script)
+  Item.Get("system/bin").SetPermissions(script)
+  Item.Get("system/etc").SetPermissions(script)
+  Item.Get("system/fonts").SetPermissions(script)
+  Item.Get("system/framework").SetPermissions(script)
+  Item.Get("system/lib").SetPermissions(script)
+  Item.Get("system/media").SetPermissions(script)
+  Item.Get("system/usr").SetPermissions(script)
+  Item.Get("system/xbin").SetPermissions(script)
 
   if OPTIONS.bootex == False:
     common.CheckSize(boot_img.data, "boot.img")
