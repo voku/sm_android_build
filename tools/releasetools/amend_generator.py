@@ -104,10 +104,6 @@ class AmendGenerator(object):
     self.script.append("".join(out))
     self.included_files.add(("applypatch_static", "applypatch"))
 
-  # Not quite right since we don't need to check /cache/saved.file on
-  # failure, but shouldn't hurt.
-  FileCheck = PatchCheck
-
   def CacheFreeSpaceCheck(self, amount):
     """Check that there's at least 'amount' space that can be made
     available on /cache."""
@@ -199,9 +195,6 @@ class AmendGenerator(object):
   def AppendExtra(self, extra):
     """Append text verbatim to the output script."""
     self.script.append(extra)
-
-  def UnmountAll(self):
-    pass
 
   def AddToZip(self, input_zip, output_zip, input_path=None):
     """Write the accumulated script to the output_zip file.  input_zip

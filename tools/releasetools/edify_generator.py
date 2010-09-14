@@ -119,16 +119,8 @@ class EdifyGenerator(object):
 
   def PatchCheck(self, filename, *sha1):
     """Check that the given file (or MTD reference) has one of the
-    given *sha1 hashes, checking the version saved in cache if the
-    file does not match."""
-    self.script.append('assert(apply_patch_check("%s"' % (filename,) +
-                       "".join([', "%s"' % (i,) for i in sha1]) +
-                       '));')
-
-  def FileCheck(self, filename, *sha1):
-    """Check that the given file (or MTD reference) has one of the
     given *sha1 hashes."""
-    self.script.append('assert(sha1_check(read_file("%s")' % (filename,) +
+		self.script.append('assert(apply_patch_check("%s"' % (filename,) +
                        "".join([', "%s"' % (i,) for i in sha1]) +
                        '));')
 
@@ -179,7 +171,7 @@ class EdifyGenerator(object):
     cmd = ['apply_patch("%s",\0"%s",\0%s,\0%d'
            % (srcfile, tgtfile, tgtsha1, tgtsize)]
     for i in range(0, len(patchpairs), 2):
-      cmd.append(',\0%s, package_extract_file("%s")' % patchpairs[i:i+2])
+      cmd.append(',\0"%s:%s"' % patchpairs[i:i+2])
     cmd.append(');')
     cmd = "".join(cmd)
     self.script.append(self._WordWrap(cmd))
@@ -228,18 +220,14 @@ class EdifyGenerator(object):
     """Append text verbatim to the output script."""
     self.script.append(extra)
 
-  def UnmountAll(self):
-    for p in sorted(self.mounts):
-      self.script.append('unmount("%s");' % (p,))
-    self.mounts = set()
-
   def AddToZip(self, input_zip, output_zip, input_path=None):
     """Write the accumulated script to the output_zip file.  input_zip
     is used as the source for the 'updater' binary needed to run
     script.  If input_path is not None, it will be used as a local
     path for the binary instead of input_zip."""
 
-    self.UnmountAll()
+	  for p in sorted(self.mounts):
+	    self.script.append('unmount("%s");' % (p,))
 
     common.ZipWriteStr(output_zip, "META-INF/com/google/android/updater-script",
                        "\n".join(self.script) + "\n")

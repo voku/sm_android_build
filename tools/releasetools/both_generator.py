@@ -42,7 +42,6 @@ class BothGenerator(object):
   def RunBackup(self, *a): self._DoBoth("RunBackup", *a)
   def ShowProgress(self, *a): self._DoBoth("ShowProgress", *a)
   def PatchCheck(self, *a): self._DoBoth("PatchCheck", *a)
-  def FileCheck(self, filename, *sha1): self._DoBoth("FileCheck", *a)
   def CacheFreeSpaceCheck(self, *a): self._DoBoth("CacheFreeSpaceCheck", *a)
   def Mount(self, *a): self._DoBoth("Mount", *a)
   def UnpackPackageDir(self, *a): self._DoBoth("UnpackPackageDir", *a)
@@ -57,7 +56,6 @@ class BothGenerator(object):
   def SetPermissionsRecursive(self, *a): self._DoBoth("SetPermissionsRecursive", *a)
   def MakeSymlinks(self, *a): self._DoBoth("MakeSymlinks", *a)
   def AppendExtra(self, *a): self._DoBoth("AppendExtra", *a)
-  def UnmountAll(self, *a): self._DoBoth("UnmountAll", *a)
 
   def AddToZip(self, input_zip, output_zip, input_path=None):
     self._DoBoth("AddToZip", input_zip, output_zip, input_path)
