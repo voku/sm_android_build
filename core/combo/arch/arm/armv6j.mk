@@ -13,7 +13,7 @@ ARCH_ARM_HAVE_FFS               := true
 #
 arch_variant_cflags := \
     -march=armv6j \
-    -mtune=arm1136jf-s \
+    -mtune=arm1176jzf-s \
     -pipe \
     -fomit-frame-pointer \
     -D__ARM_ARCH_5__ \
