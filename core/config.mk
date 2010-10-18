@@ -310,6 +310,11 @@ TARGET_GLOBAL_CFLAGS += $(TARGET_RELEASE_CFLAGS)
 TARGET_GLOBAL_CPPFLAGS += $(TARGET_RELEASE_CPPFLAGS)
 
 PREBUILT_IS_PRESENT := $(if $(wildcard prebuilt/Android.mk),true)
+ifeq ($(HOST_OS),darwin)
+HOST_GLOBAL_CFLAGS += -arch i386
+HOST_GLOBAL_CPPFLAGS += -arch i386
+HOST_GLOBAL_LDFLAGS += -arch i386
+endif
 
 # ###############################################################
 # Collect a list of the SDK versions that we could compile against

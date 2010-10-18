@@ -369,9 +369,9 @@ def WriteFullOTAPackage(input_zip, output_zip):
     script = edify_generator.EdifyGenerator(2)
 
   modver = GetBuildProp("ro.modversion", input_zip)
-  if modver is not None:
-    metadata.update({"modver": modver})
-    script.Print("Welcome to %(modver)s!" % metadata)
+  # if modver is not None and metadata is not None:
+  #  metadata.update({"modver": modver})
+  #  script.Print("Welcome to %(modver)s!" % metadata)
 
   device_specific = common.DeviceSpecificParams(
     input_zip=input_zip,
@@ -439,7 +439,7 @@ def WriteFullOTAPackage(input_zip, output_zip):
   script.ShowProgress(0.2, 10)
 
   if OPTIONS.backuptool:
-	  script.Print("Restoring proprietary files...")
+    script.Print("Restoring proprietary files...")
     script.RunBackup("restore")
 
   if OPTIONS.backuptool:

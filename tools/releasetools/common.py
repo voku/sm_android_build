@@ -166,7 +166,7 @@ def GetKeyPasswords(keylist):
   need_passwords = []
   devnull = open("/dev/null", "w+b")
   for k in sorted(keylist):
-			if not k:
+    if not k:
       no_passwords.append(k)
       continue
 

@@ -86,9 +86,9 @@ class EdifyGenerator(object):
 
   def AssertDevice(self, device):
     """Assert that the device identifier is the given string."""
-    cmd = ('assert(' + 
+    cmd = ('assert(' +
            ' || \0'.join(['getprop("ro.product.device") == "%s" || getprop("ro.build.product") == "%s" || getprop("ro.product.board") == "%s"'
-                         % (i, i, i) for i in device.split(",")]) + 
+                         % (i, i, i) for i in device.split(",")]) +
            ');')
     self.script.append(self._WordWrap(cmd))
 
@@ -120,7 +120,7 @@ class EdifyGenerator(object):
   def PatchCheck(self, filename, *sha1):
     """Check that the given file (or MTD reference) has one of the
     given *sha1 hashes."""
-		self.script.append('assert(apply_patch_check("%s"' % (filename,) +
+    self.script.append('assert(apply_patch_check("%s"' % (filename,) +
                        "".join([', "%s"' % (i,) for i in sha1]) +
                        '));')
 
@@ -226,8 +226,8 @@ class EdifyGenerator(object):
     script.  If input_path is not None, it will be used as a local
     path for the binary instead of input_zip."""
 
-	  for p in sorted(self.mounts):
-	    self.script.append('unmount("%s");' % (p,))
+    for p in sorted(self.mounts):
+	self.script.append('unmount("%s");' % (p,))
 
     common.ZipWriteStr(output_zip, "META-INF/com/google/android/updater-script",
                        "\n".join(self.script) + "\n")
