@@ -445,7 +445,7 @@ def WriteFullOTAPackage(input_zip, output_zip):
   script.ShowProgress(0.2, 10)
   script.RunVerifyCachePartitionSize()
   
-  if OPTIONS.bootex == false
+  if OPTIONS.bootex == False:
     script.Print("Writing boot image...")
     script.ShowProgress(0.2, 10)
     script.WriteRawImage("boot", "boot.img")
