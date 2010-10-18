@@ -442,14 +442,11 @@ def WriteFullOTAPackage(input_zip, output_zip):
     script.Print("Restoring proprietary files...")
     script.RunBackup("restore")
 
-  if OPTIONS.backuptool:
-    script.Print("Restoring proprietary files...")
-    script.RunBackup("restore")
+  script.ShowProgress(0.2, 10)
+  script.RunVerifyCachePartitionSize()
   
-  if OPTIONS.bootex == False:
-    script.Print("Writing boot image...")
-    script.ShowProgress(0.2, 10)
-    script.WriteRawImage("boot", "boot.img")
+  script.ShowProgress(0.2, 10)
+  script.WriteRawImage("boot", "boot.img")
 
   script.ShowProgress(0.1, 10)
   script.Print("Install complete!")
