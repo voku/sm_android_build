@@ -113,6 +113,7 @@ def CheckAllApksSigned(input_tf_zip, apk_key_map):
     print "empty string to not sign this apk)."
     sys.exit(1)
 
+
 def SharedUserForApk(data):
   tmp = tempfile.NamedTemporaryFile()
   tmp.write(data)

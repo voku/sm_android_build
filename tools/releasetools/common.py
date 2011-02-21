@@ -166,6 +166,8 @@ def GetKeyPasswords(keylist):
   need_passwords = []
   devnull = open("/dev/null", "w+b")
   for k in sorted(keylist):
+    # An empty-string key is used to mean don't re-sign this package.
+    # Obviously we don't need a password for this non-key.
     if not k:
       no_passwords.append(k)
       continue
