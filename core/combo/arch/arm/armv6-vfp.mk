@@ -13,7 +13,7 @@ ifeq ($(strip $(TARGET_ARCH_VARIANT_FPU)),)
 TARGET_ARCH_VARIANT_FPU         := vfp
 endif
 ifeq ($(strip $(TARGET_ARCH_VARIANT_CPU)),)
-TARGET_ARCH_VARIANT_CPU         := arm1136jf-s
+TARGET_ARCH_VARIANT_CPU         := arm1176zjf-s
 endif
 
 # Note: Hard coding the 'tune' value here is probably not ideal,
