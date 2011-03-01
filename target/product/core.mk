@@ -27,7 +27,6 @@ PRODUCT_PROPERTY_OVERRIDES := \
 PRODUCT_PACKAGES := \
     framework-res \
     Browser \
-    CarHomeLauncher \
     Contacts \
     Home \
     HTMLViewer \
@@ -46,8 +45,3 @@ PRODUCT_PACKAGES := \
     DefaultContainerService \
     Bugreport
 
-PRODUCT_PROPERTY_OVERRIDES += \
-    media.stagefright.enable-player=true \
-    media.stagefright.enable-meta=true   \
-    media.stagefright.enable-scan=true   \
-    media.stagefright.enable-http=true

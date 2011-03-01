@@ -22,7 +22,6 @@ PRODUCT_PACKAGES := \
 	Calculator \
 	CarHome \
 	DeskClock \
-	Development \
 	DrmProvider \
 	Email \
 	Fallback \
