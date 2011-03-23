@@ -499,7 +499,7 @@ endif # ONE_SHOT_MAKEFILE
 ifdef FULL_BUILD
   # Only include this during a full build, otherwise we can't be
   # guaranteed that any policies were included.
-  -include frameworks/policies/base/PolicyConfig.mk
+  -include frameworks/base/policy/PolicyConfig.mk
 endif
 
 # -------------------------------------------------------------------
