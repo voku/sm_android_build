@@ -31,7 +31,7 @@
 # version.
 #
 ifeq ($(strip $(TARGET_ARCH_VARIANT)),)
-TARGET_ARCH_VARIANT := armv5te
+TARGET_ARCH_VARIANT := armv6-vfp
 endif
 
 TARGET_ARCH_SPECIFIC_MAKEFILE := $(BUILD_COMBOS)/arch/$(TARGET_ARCH)/$(TARGET_ARCH_VARIANT).mk
@@ -43,6 +43,8 @@ include $(TARGET_ARCH_SPECIFIC_MAKEFILE)
 
 # You can set TARGET_TOOLS_PREFIX to get gcc from somewhere else
 ifeq ($(strip $(TARGET_TOOLS_PREFIX)),)
+#TARGET_TOOLS_PREFIX := \
+	prebuilt/$(HOST_PREBUILT_TAG)/toolchain/arm-spica-linux-uclibcgnueabi/bin/arm-eabi-
 TARGET_TOOLS_PREFIX := \
 	prebuilt/$(HOST_PREBUILT_TAG)/toolchain/arm-eabi-4.4.0/bin/arm-eabi-
 endif
@@ -57,10 +59,23 @@ TARGET_STRIP_COMMAND = $(TARGET_STRIP) --strip --shady --quiet $< --outfile $@
 
 TARGET_NO_UNDEFINED_LDFLAGS := -Wl,--no-undefined
 
-TARGET_arm_CFLAGS :=    -O2 \
+#TARGET_arm_CFLAGS :=    -O3 \
+			-floop-interchange \
+			-floop-strip-mine \
+			-floop-block \
+			-ffast-math \
                         -fomit-frame-pointer \
                         -fstrict-aliasing    \
                         -funswitch-loops     \
+                        -finline-limit=300
+
+TARGET_arm_CFLAGS :=    -O3 \
+			-mfpu=vfp \
+			-mfloat-abi=softfp \
+                        -fomit-frame-pointer \
+                        -fstrict-aliasing \
+			-funsafe-loop-optimizations \
+			-funroll-loops \
                         -finline-limit=300
 
 # Modules can choose to compile some source as thumb. As
