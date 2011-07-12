@@ -60,24 +60,42 @@ TARGET_STRIP_COMMAND = $(TARGET_STRIP) --strip --shady --quiet $< --outfile $@
 TARGET_NO_UNDEFINED_LDFLAGS := -Wl,--no-undefined
 
 #TARGET_arm_CFLAGS :=    -O3 \
+			-mfpu=vfp \
 			-floop-interchange \
 			-floop-strip-mine \
 			-floop-block \
-			-ffast-math \
-                        -fomit-frame-pointer \
-                        -fstrict-aliasing    \
-                        -funswitch-loops     \
-                        -finline-limit=300
-
-TARGET_arm_CFLAGS :=    -O3 \
-			-mfpu=vfp \
 			-mfloat-abi=softfp \
                         -fomit-frame-pointer \
-                        -fstrict-aliasing \
+                        -fstrict-aliasing    \
 			-funsafe-loop-optimizations \
-			-funroll-loops \
+                        -funswitch-loops     \
                         -finline-limit=300
+#			-ffast-math 
 
+TARGET_arm_CFLAGS :=    \
+			-D__ARM_ARCH_5__ \
+                        -D__ARM_ARCH_5T__ \
+                        -D__ARM_ARCH_5E__ \
+                        -D__ARM_ARCH_5TE__  \
+                        -O3 \
+                        -pipe \
+                        -marm \
+                        -march=armv6zk \
+                        -mtune=arm1176jzf-s \
+                        -mfpu=vfp \
+                        -mfloat-abi=softfp \
+                        -funsafe-loop-optimizations \
+                        -funroll-loops \
+                        -fomit-frame-pointer \
+                        -fstrict-aliasing \
+                        -fno-tree-vectorize \
+                        -fno-gcse \
+                        --param l1-cache-size=16 \
+                        --param l1-cache-line-size=32 \
+                        --param simultaneous-prefetches=6 \
+                        --param prefetch-latency=400 \
+                        -finline-limit=300
+                        
 # Modules can choose to compile some source as thumb. As
 # non-thumb enabled targets are supported, this is treated
 # as a 'hint'. If thumb is not enabled, these files are just
@@ -87,6 +105,8 @@ TARGET_thumb_CFLAGS :=  -mthumb \
                         -Os \
                         -fomit-frame-pointer \
                         -fno-strict-aliasing \
+                        -funsafe-loop-optimizations \
+                        -funroll-loops \
                         -finline-limit=64
 else
 TARGET_thumb_CFLAGS := $(TARGET_arm_CFLAGS)
@@ -142,6 +162,8 @@ TARGET_RELEASE_CFLAGS := \
 			-fno-inline-functions-called-once \
 			-fgcse-after-reload \
 			-frerun-cse-after-loop \
+                        -funsafe-loop-optimizations \
+                        -funroll-loops \
 			-frename-registers
 
 libc_root := bionic/libc

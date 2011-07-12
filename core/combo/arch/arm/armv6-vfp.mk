@@ -27,7 +27,6 @@ endif
     -floop-interchange \
     -floop-strip-mine \
     -floop-block \
-    -ffast-math \
     -funsafe-loop-optimizations \
     -mfloat-abi=softfp \
     -funroll-loops \
@@ -37,19 +36,30 @@ endif
     -D__ARM_ARCH_5T__ \
     -D__ARM_ARCH_5E__ \
     -D__ARM_ARCH_5TE__
+#    -ffast-math
+
+                        
 
 arch_variant_cflags := \
-    -march=armv6zk \
-    -mtune=arm1176jzf-s \
-    -O3 \
-    -pipe \
-    -funsafe-loop-optimizations \
-    -funroll-loops \
-    -mfloat-abi=softfp \
-    -fomit-frame-pointer \
-    -mfpu=vfp \
-    -D__ARM_ARCH_5__ \
-    -D__ARM_ARCH_5T__ \
-    -D__ARM_ARCH_5E__ \
-    -D__ARM_ARCH_5TE__
-
+                        -D__ARM_ARCH_5__ \
+                        -D__ARM_ARCH_5T__ \
+                        -D__ARM_ARCH_5E__ \
+                        -D__ARM_ARCH_5TE__  \
+                        -O3 \
+                        -pipe \
+                        -marm \
+                        -march=armv6zk \
+                        -mtune=arm1176jzf-s \
+                        -mfpu=vfp \
+                        -mfloat-abi=softfp \
+                        -funsafe-loop-optimizations \
+                        -funroll-loops \
+                        -fomit-frame-pointer \
+                        -fstrict-aliasing \
+                        -fno-tree-vectorize \
+                        -fno-gcse \
+                        --param l1-cache-size=16 \
+                        --param l1-cache-line-size=32 \
+                        --param simultaneous-prefetches=6 \
+                        --param prefetch-latency=400 \
+                        -finline-limit=300
