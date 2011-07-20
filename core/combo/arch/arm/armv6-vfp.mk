@@ -19,32 +19,7 @@ endif
 # Note: Hard coding the 'tune' value here is probably not ideal,
 # and a better solution should be found in the future.
 #
-#arch_variant_cflags := \
-    -march=armv6zk \
-    -mtune=arm1176jzf-s \
-    -O3 \
-    -pipe \
-    -floop-interchange \
-    -floop-strip-mine \
-    -floop-block \
-    -funsafe-loop-optimizations \
-    -mfloat-abi=softfp \
-    -funroll-loops \
-    -fomit-frame-pointer \
-    -mfpu=$(TARGET_ARCH_VARIANT_FPU) \
-    -D__ARM_ARCH_5__ \
-    -D__ARM_ARCH_5T__ \
-    -D__ARM_ARCH_5E__ \
-    -D__ARM_ARCH_5TE__
-#    -ffast-math
-
-                        
-
 arch_variant_cflags := \
-                        -D__ARM_ARCH_5__ \
-                        -D__ARM_ARCH_5T__ \
-                        -D__ARM_ARCH_5E__ \
-                        -D__ARM_ARCH_5TE__  \
                         -O3 \
                         -pipe \
                         -marm \
@@ -52,14 +27,20 @@ arch_variant_cflags := \
                         -mtune=arm1176jzf-s \
                         -mfpu=vfp \
                         -mfloat-abi=softfp \
-                        -funsafe-loop-optimizations \
-                        -funroll-loops \
                         -fomit-frame-pointer \
-                        -fstrict-aliasing \
-                        -fno-tree-vectorize \
-                        -fno-gcse \
-                        --param l1-cache-size=16 \
-                        --param l1-cache-line-size=32 \
-                        --param simultaneous-prefetches=6 \
-                        --param prefetch-latency=400 \
-                        -finline-limit=300
+                        -funsafe-loop-optimizations \
+                        -funsafe-math-optimizations \
+                        -funroll-loops \
+                        -fpeel-loops \
+                        -fbranch-target-load-optimize2 \
+                        -D__ARM_ARCH_5__ \
+                        -D__ARM_ARCH_5T__ \
+                        -D__ARM_ARCH_5E__ \
+                        -D__ARM_ARCH_5TE__
+
+#arch_variant_cflags +=   \
+                        -ffast-math \
+                        -floop-interchange \
+                        -floop-strip-mine \
+                        -floop-block \
+
