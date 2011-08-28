@@ -26,13 +26,10 @@ arch_variant_cflags := \
                         -march=armv6zk \
                         -mtune=arm1176jzf-s \
                         -mfpu=vfp \
+    			-funsafe-loop-optimizations \
+    			-funroll-loops \
                         -mfloat-abi=softfp \
                         -fomit-frame-pointer \
-                        -funsafe-loop-optimizations \
-                        -funsafe-math-optimizations \
-                        -funroll-loops \
-                        -fpeel-loops \
-                        -fbranch-target-load-optimize2 \
                         -D__ARM_ARCH_5__ \
                         -D__ARM_ARCH_5T__ \
                         -D__ARM_ARCH_5E__ \

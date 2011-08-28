@@ -61,11 +61,7 @@ TARGET_NO_UNDEFINED_LDFLAGS := -Wl,--no-undefined
 
 TARGET_arm_CFLAGS :=    \
                         -O3 \
-                        -funsafe-loop-optimizations \
-                        -funsafe-math-optimizations \
-                        -funroll-loops \
-                        -fpeel-loops \
-                        -fbranch-target-load-optimize2 \
+                        -funswitch-loops \
                         -fomit-frame-pointer \
                         -fstrict-aliasing    \
                         -finline-limit=300
