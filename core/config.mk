@@ -152,6 +152,10 @@ ifeq ($(TARGET_CPU_ABI),)
 endif
 TARGET_CPU_ABI2 := $(strip $(TARGET_CPU_ABI2))
 
+ifeq ($(TARGET_EXTRA_CPPFLAGS),)
+TARGET_EXTRA_CPPFLAGS := $(TARGET_EXTRA_CFLAGS)
+endif
+
 # $(1): os/arch
 define select-android-config-h
 system/core/include/arch/$(1)/AndroidConfig.h
@@ -299,8 +303,8 @@ TARGET_PROJECT_INCLUDES:= $(SRC_HEADERS) $(TARGET_OUT_HEADERS)
 # host compiler, so only set them for the target when the target
 # is not the simulator.
 ifneq ($(TARGET_SIMULATOR),true)
-TARGET_GLOBAL_CFLAGS += $(TARGET_ERROR_FLAGS)
-TARGET_GLOBAL_CPPFLAGS += $(TARGET_ERROR_FLAGS)
+TARGET_GLOBAL_CFLAGS += $(TARGET_ERROR_FLAGS) $(TARGET_EXTRA_CFLAGS) $(call cc-option,-fgraphite-identity) $(call cc-option,-floop-interchange) $(call cc-option,-floop-strip-mine) $(call cc-option,-ftree-loop-distribution) $(call cc-option,-ftree-loop-linear) $(call cc-option,-fmodulo-sched) $(call cc-option,-fmodulo-sched-allow-regmoves)
+TARGET_GLOBAL_CPPFLAGS += $(TARGET_ERROR_FLAGS) $(TARGET_EXTRA_CPPFLAGS) $(call cc-option,-fgraphite-identity) $(call cc-option,-floop-interchange) $(call cc-option,-floop-strip-mine) $(call cc-option,-ftree-loop-distribution) $(call cc-option,-ftree-loop-linear) $(call cc-option,-fmodulo-sched) $(call cc-option,-fmodulo-sched-allow-regmoves) $(call cc-option,-fvisibility-inlines-hidden)
 endif
 
 HOST_GLOBAL_CFLAGS += $(HOST_RELEASE_CFLAGS)

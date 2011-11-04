@@ -40,4 +40,3 @@ arch_variant_cflags := \
                         -floop-interchange \
                         -floop-strip-mine \
                         -floop-block \
-
