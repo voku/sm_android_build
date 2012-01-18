@@ -119,12 +119,16 @@ ifdef product_goals
     default_goal_substitution := $(DEFAULT_GOAL)
   endif
 
-  # Hack to make the linux build servers use dexpreopt.
-  # OSX is still a little flaky.  Most engineers don't use this
-  # type of target ("make PRODUCT-blah-user"), so this should
-  # only tend to happen when using buildbot.
-  # TODO: remove this and fix the matching lines in build/core/main.mk
-  # once dexpreopt works better on OSX.
+  # For tests build, only build tests-build-target
+  ifeq (tests,$(TARGET_BUILD_VARIANT))
+    default_goal_substitution := tests-build-target
+  endif
+
+  # Hack to make the linux build servers use dexpreopt (emulator-based
+  # preoptimization). Most engineers don't use this type of target
+  # ("make PRODUCT-blah-user"), so this should only tend to happen when
+  # using buildbot.
+  # TODO: Remove this once host Dalvik preoptimization is working.
   ifeq ($(TARGET_BUILD_VARIANT),user)
     WITH_DEXPREOPT_buildbot := true
   endif
@@ -149,6 +153,26 @@ endif
 # else: Use the value set in the environment or buildspec.mk.
 
 # ---------------------------------------------------------------
+# Provide "APP-<appname>" targets, which lets you build
+# an unbundled app.
+#
+unbundled_goals := $(strip $(filter APP-%,$(MAKECMDGOALS)))
+ifdef unbundled_goals
+  ifneq ($(words $(unbundled_goals)),1)
+    $(error Only one APP-* goal may be specified; saw "$(unbundled_goals)"))
+  endif
+  TARGET_BUILD_APPS := $(strip $(subst -, ,$(patsubst APP-%,%,$(unbundled_goals))))
+  ifneq ($(filter $(DEFAULT_GOAL),$(MAKECMDGOALS)),)
+    MAKECMDGOALS := $(patsubst $(unbundled_goals),,$(MAKECMDGOALS))
+  else
+    MAKECMDGOALS := $(patsubst $(unbundled_goals),$(DEFAULT_GOAL),$(MAKECMDGOALS))
+  endif
+
+.PHONY: $(unbundled_goals)
+$(unbundled_goals): $(MAKECMDGOALS)
+endif # unbundled_goals
+
+# ---------------------------------------------------------------
 # Include the product definitions.
 # We need to do this to translate TARGET_PRODUCT into its
 # underlying TARGET_DEVICE before we start defining any rules.
@@ -157,12 +181,20 @@ include $(BUILD_SYSTEM)/node_fns.mk
 include $(BUILD_SYSTEM)/product.mk
 include $(BUILD_SYSTEM)/device.mk
 
-# Read in all of the product definitions specified by the AndroidProducts.mk
-# files in the tree.
-#
-#TODO: when we start allowing direct pointers to product files,
-#    guarantee that they're in this list.
-$(call import-products, $(get-all-product-makefiles))
+ifneq ($(strip $(TARGET_BUILD_APPS)),)
+  # An unbundled app build needs only the core product makefiles.
+  $(call import-products,$(call get-product-makefiles,\
+      $(SRC_TARGET_DIR)/product/AndroidProducts.mk))
+else ifneq ($(CM_BUILD),)
+  $(call import-products, vendor/cyanogen/products/cyanogen_$(CM_BUILD).mk)
+else
+  # Read in all of the product definitions specified by the AndroidProducts.mk
+  # files in the tree.
+  #
+  #TODO: when we start allowing direct pointers to product files,
+  #    guarantee that they're in this list.
+  $(call import-products, $(get-all-product-makefiles))
+endif # TARGET_BUILD_APPS
 $(check-all-products)
 #$(dump-products)
 #$(error done)
@@ -223,14 +255,17 @@ ifndef PRODUCT_MANUFACTURER
   PRODUCT_MANUFACTURER := unknown
 endif
 
+ifeq ($(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_CHARACTERISTICS),)
+  TARGET_AAPT_CHARACTERISTICS := default
+else
+  TARGET_AAPT_CHARACTERISTICS := $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_CHARACTERISTICS))
+endif
+
 PRODUCT_SPECIFIC_DEFINES := \
 	$(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SPECIFIC_DEFINES))
 
 PRODUCT_DEFAULT_WIFI_CHANNELS := \
 	$(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_DEFAULT_WIFI_CHANNELS))
-
-# Which policy should this product use
-PRODUCT_POLICY := $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_POLICY))
 
 # A list of words like <source path>:<destination path>.  The file at
 # the source path should be copied to the destination path when building
@@ -249,11 +284,8 @@ PRODUCT_CONTRIBUTORS_FILE := \
 PRODUCT_PROPERTY_OVERRIDES := \
 	$(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PROPERTY_OVERRIDES))
 
-PRODUCT_INFO_PREBUILT := \
-  $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_INFO_PREBUILT))
-
 PRODUCT_BUILD_PROP_OVERRIDES := \
-  $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_BUILD_PROP_OVERRIDES))
+	$(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_BUILD_PROP_OVERRIDES))
 
 # Should we use the default resources or add any product specific overlays
 PRODUCT_PACKAGE_OVERLAYS := \

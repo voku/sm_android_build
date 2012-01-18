@@ -20,12 +20,16 @@ ifneq ($(LOCAL_SDK_VERSION),)
       $(error $(LOCAL_PATH): Invalid LOCAL_SDK_VERSION '$(LOCAL_SDK_VERSION)' \
              Choices are: $(TARGET_AVAILABLE_SDK_VERSIONS))
     else
-      LOCAL_JAVA_LIBRARIES := android_stubs_$(LOCAL_SDK_VERSION) $(LOCAL_JAVA_LIBRARIES) 
+      ifeq ($(LOCAL_SDK_VERSION),current)
+        LOCAL_JAVA_LIBRARIES := android_stubs_$(LOCAL_SDK_VERSION) $(LOCAL_JAVA_LIBRARIES)
+      else
+        LOCAL_JAVA_LIBRARIES := sdk_v$(LOCAL_SDK_VERSION) $(LOCAL_JAVA_LIBRARIES)
+      endif
     endif
   endif
 else
   ifneq ($(LOCAL_NO_STANDARD_LIBRARIES),true)
-    LOCAL_JAVA_LIBRARIES := core ext framework $(LOCAL_JAVA_LIBRARIES)
+    LOCAL_JAVA_LIBRARIES := core core-junit ext framework $(LOCAL_JAVA_LIBRARIES)
   endif
 endif
 LOCAL_JAVA_LIBRARIES := $(sort $(LOCAL_JAVA_LIBRARIES))
@@ -47,9 +51,6 @@ endif
 intermediates := $(call local-intermediates-dir)
 intermediates.COMMON := $(call local-intermediates-dir,COMMON)
 
-# This is cleared below, and re-set if we really need it.
-full_classes_jar := $(intermediates.COMMON)/classes.jar
-
 # Emma source code coverage
 ifneq ($(EMMA_INSTRUMENT),true)
 LOCAL_NO_EMMA_INSTRUMENT := true
@@ -59,28 +60,58 @@ endif
 # Choose leaf name for the compiled jar file.
 ifneq ($(LOCAL_NO_EMMA_COMPILE),true)
 full_classes_compiled_jar_leaf := classes-no-debug-var.jar
+built_dex_intermediate_leaf := classes-no-local.dex
 else
 full_classes_compiled_jar_leaf := classes-full-debug.jar
+built_dex_intermediate_leaf := classes-with-local.dex
 endif
-full_classes_compiled_jar := $(intermediates.COMMON)/$(full_classes_compiled_jar_leaf)
 
+LOCAL_PROGUARD_ENABLED:=$(strip $(LOCAL_PROGUARD_ENABLED))
+ifeq ($(LOCAL_PROGUARD_ENABLED),disabled)
+LOCAL_PROGUARD_ENABLED :=
+endif
+
+# By giving different file name, files can be updated correctly when switching
+# between builds with and without Proguard enabled.
+# Note that ANY intermediate targets between the proguard and
+# the final built_dex should be differently named!
+ifdef LOCAL_PROGUARD_ENABLED
+proguard_jar_leaf := proguard.classes.jar
+built_dex_intermediate_leaf := proguard.$(built_dex_intermediate_leaf)
+built_dex_leaf := progaurd.classes.dex
+else
+proguard_jar_leaf := noproguard.classes.jar
+built_dex_intermediate_leaf := noproguard.$(built_dex_intermediate_leaf)
+built_dex_leaf := noproguard.classes.dex
+endif
+
+full_classes_compiled_jar := $(intermediates.COMMON)/$(full_classes_compiled_jar_leaf)
+jarjar_leaf := classes-jarjar.jar
+full_classes_jarjar_jar := $(intermediates.COMMON)/$(jarjar_leaf)
 emma_intermediates_dir := $(intermediates.COMMON)/emma_out
-# the 'lib/$(full_classes_compiled_jar_leaf)' portion of this path is fixed in
-# the emma tool
-full_classes_emma_jar := $(emma_intermediates_dir)/lib/$(full_classes_compiled_jar_leaf)
+# emma is hardcoded to use the leaf name of its input for the output file --
+# only the output directory can be changed
+full_classes_emma_jar := $(emma_intermediates_dir)/lib/$(jarjar_leaf)
+full_classes_proguard_jar := $(intermediates.COMMON)/$(proguard_jar_leaf)
+built_dex_intermediate := $(intermediates.COMMON)/$(built_dex_intermediate_leaf)
 full_classes_stubs_jar := $(intermediates.COMMON)/stubs.jar
-full_classes_jarjar_jar := $(intermediates.COMMON)/classes-jarjar.jar
-full_classes_proguard_jar := $(full_classes_jar)
-built_dex := $(intermediates.COMMON)/classes.dex
+
+# full_classes_jar and built_dex are cleared below, and re-set if we really need them.
+full_classes_jar := $(intermediates.COMMON)/classes.jar
+built_dex := $(intermediates.COMMON)/$(built_dex_leaf)
 
 LOCAL_INTERMEDIATE_TARGETS += \
-    $(full_classes_jar) \
     $(full_classes_compiled_jar) \
-    $(full_classes_emma_jar) \
-    $(full_classes_stubs_jar) \
     $(full_classes_jarjar_jar) \
-    $(built_dex)
+    $(full_classes_emma_jar) \
+    $(full_classes_jar) \
+    $(full_classes_proguard_jar) \
+    $(built_dex_intermediate) \
+    $(built_dex) \
+    $(full_classes_stubs_jar)
 
+
+LOCAL_INTERMEDIATE_SOURCE_DIR := $(intermediates.COMMON)/src
 
 # TODO: It looks like the only thing we need from base_rules is
 # all_java_sources.  See if we can get that by adding a
@@ -98,7 +129,7 @@ include $(BUILD_SYSTEM)/base_rules.mk
 $(LOCAL_INTERMEDIATE_TARGETS): \
 	PRIVATE_CLASS_INTERMEDIATES_DIR := $(intermediates.COMMON)/classes
 $(LOCAL_INTERMEDIATE_TARGETS): \
-	PRIVATE_SOURCE_INTERMEDIATES_DIR := $(intermediates.COMMON)/src
+	PRIVATE_SOURCE_INTERMEDIATES_DIR := $(LOCAL_INTERMEDIATE_SOURCE_DIR)
 
 # Since we're using intermediates.COMMON, make sure that it gets cleaned
 # properly.
@@ -115,7 +146,7 @@ ifneq (,$(strip $(all_java_sources)))
 # LOCAL_BUILT_MODULE, so it will inherit the necessary PRIVATE_*
 # variable definitions.
 full_classes_jar := $(intermediates.COMMON)/classes.jar
-built_dex := $(intermediates.COMMON)/classes.dex
+built_dex := $(intermediates.COMMON)/$(built_dex_leaf)
 
 # Droiddoc isn't currently able to generate stubs for modules, so we're just
 # allowing it to use the classes.jar as the "stubs" that would be use to link
@@ -135,9 +166,9 @@ ALL_MODULES.$(LOCAL_MODULE).STUBS := $(full_classes_stubs_jar)
 # This intentionally depends on java_sources, not all_java_sources.
 # Deps for generated source files must be handled separately,
 # via deps on the target that generates the sources.
-$(full_classes_compiled_jar): $(java_sources) $(full_java_lib_deps) | $(OVERRIDECHECK)
+$(full_classes_compiled_jar): PRIVATE_JAVACFLAGS := $(LOCAL_JAVACFLAGS)
+$(full_classes_compiled_jar): $(java_sources) $(java_resource_sources) $(full_java_lib_deps) $(jar_manifest_file)
 	$(transform-java-to-classes.jar)
-
 
 # All of the rules after full_classes_compiled_jar are very unlikely
 # to fail except for bugs in their respective tools.  If you would
@@ -148,17 +179,18 @@ $(full_classes_compiled_jar): $(java_sources) $(full_java_lib_deps) | $(OVERRIDE
 # be done after the inclusion of base_rules.mk.
 ALL_MODULES.$(LOCAL_MODULE).CHECKED := $(full_classes_compiled_jar)
 
-ifneq ($(LOCAL_NO_EMMA_COMPILE),true) 
-# If you instrument class files that have local variable debug information in
-# them emma does not correctly maintain the local variable table.
-# This will cause an error when you try to convert the class files for Android.
-# The workaround for this to compile the java classes with only
-# line and source debug information, not local information.
-$(full_classes_compiled_jar): PRIVATE_JAVAC_DEBUG_FLAGS := -g:{lines,source}
-else
-# when emma is off, compile with the default flags, which contain full debug 
-# info
 $(full_classes_compiled_jar): PRIVATE_JAVAC_DEBUG_FLAGS := -g
+
+# Run jarjar if necessary, otherwise just copy the file.
+ifneq ($(strip $(LOCAL_JARJAR_RULES)),)
+$(full_classes_jarjar_jar): PRIVATE_JARJAR_RULES := $(LOCAL_JARJAR_RULES)
+$(full_classes_jarjar_jar): $(full_classes_compiled_jar) | $(JARJAR)
+	@echo -e ${CL_PFX}"JarJar:"${CL_RST}" $@"
+	$(hide) java -jar $(JARJAR) process $(PRIVATE_JARJAR_RULES) $< $@
+else
+$(full_classes_jarjar_jar): $(full_classes_compiled_jar) | $(ACP)
+	@echo -e ${CL_PFX}"Copying:"${CL_RST}" $@"
+	$(hide) $(ACP) $< $@
 endif
 
 ifeq ($(LOCAL_IS_STATIC_JAVA_LIBRARY),true)
@@ -170,69 +202,95 @@ endif
 ifneq ($(LOCAL_NO_EMMA_INSTRUMENT),true)
 $(full_classes_emma_jar): PRIVATE_EMMA_COVERAGE_FILE := $(intermediates.COMMON)/coverage.em
 $(full_classes_emma_jar): PRIVATE_EMMA_INTERMEDIATES_DIR := $(emma_intermediates_dir)
+# module level coverage filter can be defined using LOCAL_EMMA_COVERAGE_FILTER
+# in Android.mk
+ifdef LOCAL_EMMA_COVERAGE_FILTER
+$(full_classes_emma_jar): PRIVATE_EMMA_COVERAGE_FILTER := $(LOCAL_EMMA_COVERAGE_FILTER)
+else
+# by default, avoid applying emma instrumentation onto emma classes itself,
+# otherwise there will be exceptions thrown
+$(full_classes_emma_jar): PRIVATE_EMMA_COVERAGE_FILTER := *,-emma,-emmarun,-com.vladium.*
+endif
 # this rule will generate both $(PRIVATE_EMMA_COVERAGE_FILE) and
 # $(full_classes_emma_jar)
-$(full_classes_emma_jar): $(full_classes_compiled_jar)
+$(full_classes_emma_jar): $(full_classes_jarjar_jar) | $(EMMA_JAR)
 	$(transform-classes.jar-to-emma)
 $(PRIVATE_EMMA_COVERAGE_FILE): $(full_classes_emma_jar)
+
+# tell proguard to load emma jar
+LOCAL_PROGUARD_FLAGS := $(LOCAL_PROGUARD_FLAGS) $(addprefix -libraryjars ,$(EMMA_JAR))
 else
-$(full_classes_emma_jar): $(full_classes_compiled_jar) | $(ACP)
-	@echo Copying: $<
+$(full_classes_emma_jar): $(full_classes_jarjar_jar) | $(ACP)
+	@echo -e ${CL_PFX}"Copying:"${CL_RST}" $@"
 	$(copy-file-to-target)
 endif
 
-# Run jarjar if necessary, otherwise just copy the file.
-ifneq ($(strip $(LOCAL_JARJAR_RULES)),)
-$(full_classes_jarjar_jar): PRIVATE_JARJAR_RULES := $(LOCAL_JARJAR_RULES)
-$(full_classes_jarjar_jar): $(full_classes_emma_jar) | $(JARJAR)
-	@echo JarJar: $@
-	$(hide) $(JARJAR) process $(PRIVATE_JARJAR_RULES) $< $@
-else
-$(full_classes_jarjar_jar): $(full_classes_emma_jar) | $(ACP)
-	@echo Copying: $@
+# Keep a copy of the jar just before proguard processing.
+$(full_classes_jar): $(full_classes_emma_jar) | $(ACP)
+	@echo -e ${CL_PFX}"Copying:"${CL_RST}" $@"
 	$(hide) $(ACP) $< $@
-endif
 
-# Run proguard if necessary, otherwise just copy the file.  This is the last
-# part of this step, so the output of this command is full_classes_jar.
-ifneq ($(strip $(LOCAL_PROGUARD_ENABLED)),)
+# Run proguard if necessary, otherwise just copy the file.
 proguard_dictionary := $(intermediates.COMMON)/proguard_dictionary
-proguard_flags := $(addprefix -libraryjars ,$(full_java_libs)) \
+# Proguard doesn't like a class in both library and the jar to be processed.
+proguard_full_java_libs := $(filter-out $(full_static_java_libs),$(full_java_libs))
+proguard_flags := $(addprefix -libraryjars ,$(proguard_full_java_libs)) \
                   -include $(BUILD_SYSTEM)/proguard.flags \
                   -forceprocessing \
                   -printmapping $(proguard_dictionary)
-ifeq ($(strip $(LOCAL_PROGUARD_ENABLED)),full)
+# If this is a test package, add proguard keep flags for tests.
+ifneq ($(strip $(LOCAL_INSTRUMENTATION_FOR)$(filter tests,$(LOCAL_MODULE_TAGS))$(filter android.test.runner,$(LOCAL_JAVA_LIBRARIES))),)
+proguard_flags := $(proguard_flags) -include $(BUILD_SYSTEM)/proguard_tests.flags
+endif # test package
+
+ifneq ($(LOCAL_PROGUARD_ENABLED),)
+ifeq ($(LOCAL_PROGUARD_ENABLED),full)
     # full
 else
-ifeq ($(strip $(LOCAL_PROGUARD_ENABLED)),optonly)
+ifeq ($(LOCAL_PROGUARD_ENABLED),optonly)
     # optonly
     proguard_flags += -dontobfuscate
 else
-ifeq ($(strip $(LOCAL_PROGUARD_ENABLED)),custom)
+ifeq ($(LOCAL_PROGUARD_ENABLED),custom)
     # custom
 else
     $(warning while processing: $(LOCAL_MODULE))
     $(error invalid value for LOCAL_PROGUARD_ENABLED: $(LOCAL_PROGUARD_ENABLED))
-endif
-endif
-endif
+endif # custom
+endif # optonly
+endif # full
+endif # LOCAL_PROGUARD_ENABLED
 
+proguard_flag_files := $(addprefix $(LOCAL_PATH)/, $(LOCAL_PROGUARD_FLAG_FILES))
+LOCAL_PROGUARD_FLAGS += $(addprefix -include , $(proguard_flag_files))
+
+$(full_classes_proguard_jar): PRIVATE_PROGUARD_ENABLED:=$(LOCAL_PROGUARD_ENABLED)
 $(full_classes_proguard_jar): PRIVATE_PROGUARD_FLAGS := $(proguard_flags) $(LOCAL_PROGUARD_FLAGS)
-$(full_classes_proguard_jar): $(full_classes_emma_jar) | $(PROGUARD)
-	@echo Proguard: $@
-	$(hide) $(PROGUARD) -injars $< -outjars $@ $(PRIVATE_PROGUARD_FLAGS)
-else
-$(full_classes_proguard_jar): $(full_classes_emma_jar) | $(ACP)
-	@echo Copying: $@
-	$(hide) $(ACP) $< $@
-endif
+$(full_classes_proguard_jar): PRIVATE_INSTRUMENTATION_FOR:=$(strip $(LOCAL_INSTRUMENTATION_FOR))
+$(full_classes_proguard_jar) : $(full_classes_jar) $(proguard_flag_files) | $(ACP) $(PROGUARD)
+	$(call transform-jar-to-proguard)
+
+ALL_MODULES.$(LOCAL_MODULE).PROGUARD_ENABLED:=$(LOCAL_PROGUARD_ENABLED)
+
+# If you instrument class files that have local variable debug information in
+# them emma does not correctly maintain the local variable table.
+# This will cause an error when you try to convert the class files for Android.
+# The workaround here is to build different dex file here based on emma switch
+# then later copy into classes.dex. When emma is on, dx is run with --no-locals
+# option to remove local variable information
 
 # Override PRIVATE_INTERMEDIATES_DIR so that install-dex-debug
 # will work even when intermediates != intermediates.COMMON.
-$(built_dex): PRIVATE_INTERMEDIATES_DIR := $(intermediates.COMMON)
-$(built_dex): PRIVATE_DX_FLAGS := $(LOCAL_DX_FLAGS)
-$(built_dex): $(full_classes_jar) $(DX)
+$(built_dex_intermediate): PRIVATE_INTERMEDIATES_DIR := $(intermediates.COMMON)
+$(built_dex_intermediate): PRIVATE_DX_FLAGS := $(LOCAL_DX_FLAGS)
+ifneq ($(LOCAL_NO_EMMA_COMPILE),true)
+$(built_dex_intermediate): PRIVATE_DX_FLAGS += --no-locals
+endif
+$(built_dex_intermediate): $(full_classes_proguard_jar) $(DX)
 	$(transform-classes.jar-to-dex)
+$(built_dex): $(built_dex_intermediate) | $(ACP)
+	@echo -e ${CL_PFX}"Copying:"${CL_RST}" $@"
+	$(hide) $(ACP) $< $@
 ifneq ($(GENERATE_DEX_DEBUG),)
 	$(install-dex-debug)
 endif
@@ -245,7 +303,7 @@ $(findbugs_xml) : PRIVATE_AUXCLASSPATH := $(addprefix -auxclasspath ,$(strip \
 # We can't depend directly on full_classes_jar because the PRIVATE_
 # vars won't be set up correctly.
 $(findbugs_xml) : $(LOCAL_BUILT_MODULE)
-	@echo Findbugs: $@
+	@echo -e ${CL_PFX}"Findbugs:"${CL_RST}" $@"
 	$(hide) $(FINDBUGS) -textui -effort:min -xml:withMessages \
 		$(PRIVATE_AUXCLASSPATH) \
 		$(PRIVATE_JAR_FILE) \
@@ -258,7 +316,7 @@ $(findbugs_html) : PRIVATE_XML_FILE := $(findbugs_xml)
 $(LOCAL_MODULE)-findbugs : $(findbugs_html)
 $(findbugs_html) : $(findbugs_xml)
 	@mkdir -p $(dir $@)
-	@echo ConvertXmlToText: $@
+	@echo -e ${CL_PFX}"ConvertXmlToText:"${CL_RST}" $@"
 	$(hide) prebuilt/common/findbugs/bin/convertXmlToText -html:fancy.xsl $(PRIVATE_XML_FILE) \
 	> $@
 

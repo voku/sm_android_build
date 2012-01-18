@@ -29,13 +29,13 @@ $(shell test -d device && find device -maxdepth 6 -name AndroidProducts.mk) \
 endef
 
 #
-# Returns the sorted concatenation of all PRODUCT_MAKEFILES
-# variables set in all AndroidProducts.mk files.
-# $(call ) isn't necessary.
+# Returns the sorted concatenation of PRODUCT_MAKEFILES
+# variables set in the given AndroidProducts.mk files.
+# $(1): the list of AndroidProducts.mk files.
 #
-define get-all-product-makefiles
+define get-product-makefiles
 $(sort \
-  $(foreach f,$(_find-android-products-files), \
+  $(foreach f,$(1), \
     $(eval PRODUCT_MAKEFILES :=) \
     $(eval LOCAL_DIR := $(patsubst %/,%,$(dir $(f)))) \
     $(eval include $(f)) \
@@ -47,11 +47,19 @@ $(sort \
 endef
 
 #
+# Returns the sorted concatenation of all PRODUCT_MAKEFILES
+# variables set in all AndroidProducts.mk files.
+# $(call ) isn't necessary.
+#
+define get-all-product-makefiles
+$(call get-product-makefiles,$(_find-android-products-files))
+endef
+
+#
 # Functions for including product makefiles
 #
 
 _product_var_list := \
-    PRODUCT_INFO_PREBUILT \
     PRODUCT_SPECIFIC_DEFINES \
     PRODUCT_BUILD_PROP_OVERRIDES \
     PRODUCT_NAME \
@@ -62,9 +70,9 @@ _product_var_list := \
     PRODUCT_MANUFACTURER \
     PRODUCT_BRAND \
     PRODUCT_PROPERTY_OVERRIDES \
+    PRODUCT_CHARACTERISTICS \
     PRODUCT_COPY_FILES \
     PRODUCT_OTA_PUBLIC_KEYS \
-    PRODUCT_POLICY \
     PRODUCT_PACKAGE_OVERLAYS \
     DEVICE_PACKAGE_OVERLAYS \
     PRODUCT_CONTRIBUTORS_FILE \
@@ -102,6 +110,14 @@ define inherit-product
   $(eval $(inherit_var) := $(sort $($(inherit_var)) $(strip $(1)))) \
   $(eval inherit_var:=) \
   $(eval ALL_PRODUCTS := $(sort $(ALL_PRODUCTS) $(word 1,$(_include_stack))))
+endef
+
+
+#
+# Do inherit-product only if $(1) exists
+#
+define inherit-product-if-exists
+  $(if $(wildcard $(1)),$(call inherit-product,$(1)),)
 endef
 
 #

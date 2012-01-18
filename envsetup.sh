@@ -9,6 +9,11 @@ Invoke ". build/envsetup.sh" from your shell to add the following functions to y
 - jgrep:   Greps on all local Java files.
 - resgrep: Greps on all local res/*.xml files.
 - godir:   Go to the directory containing a file.
+- cmremote: Add git remote for CM Gerrit Review
+- cmgerrit: A Git wrapper that fetches/pushes patch from/to CM Gerrit Review
+- cmrebase: Rebase a Gerrit change and push it again
+- mka:     Builds using SCHED_BATCH on all processors
+- reposync: Parallel repo sync using ionice and SCHED_BATCH
 
 Look at the source to view more functions. The complete list is:
 EOF
@@ -53,9 +58,18 @@ function check_product()
         echo "Couldn't locate the top of the tree.  Try setting TOP." >&2
         return
     fi
+
+    if (echo -n $1 | grep -q -e "^cyanogen_") ; then
+       CM_BUILD=$(echo -n $1 | sed -e 's/^cyanogen_//g')
+    else
+       CM_BUILD=
+    fi
+    export CM_BUILD
+
     CALLED_FROM_SETUP=true BUILD_SYSTEM=build/core \
         TARGET_PRODUCT=$1 TARGET_BUILD_VARIANT= \
         TARGET_SIMULATOR= TARGET_BUILD_TYPE= \
+        TARGET_BUILD_APPS= \
         get_build_var TARGET_DEVICE > /dev/null
     # hide successful answers, but allow the errors to show
 }
@@ -98,19 +112,34 @@ function setpaths()
     if [ -n $ANDROID_BUILD_PATHS ] ; then
         export PATH=${PATH/$ANDROID_BUILD_PATHS/}
     fi
+    if [ -n $ANDROID_PRE_BUILD_PATHS ] ; then
+        export PATH=${PATH/$ANDROID_PRE_BUILD_PATHS/}
+    fi
 
     # and in with the new
     CODE_REVIEWS=
     prebuiltdir=$(getprebuilt)
-    export ANDROID_EABI_TOOLCHAIN=$prebuiltdir/toolchain/arm-eabi-4.4.0/bin
+    export ANDROID_EABI_TOOLCHAIN=$prebuiltdir/toolchain/arm-eabi-4.4.3/bin
     export ANDROID_TOOLCHAIN=$ANDROID_EABI_TOOLCHAIN
     export ANDROID_QTOOLS=$T/development/emulator/qtools
     export ANDROID_BUILD_PATHS=:$(get_build_var ANDROID_BUILD_PATHS):$ANDROID_QTOOLS:$ANDROID_TOOLCHAIN:$ANDROID_EABI_TOOLCHAIN$CODE_REVIEWS
     export PATH=$PATH$ANDROID_BUILD_PATHS
 
+    unset ANDROID_JAVA_TOOLCHAIN
+    if [ -n "$JAVA_HOME" ]; then
+        export ANDROID_JAVA_TOOLCHAIN=$JAVA_HOME/bin
+    fi
+    export ANDROID_PRE_BUILD_PATHS=$ANDROID_JAVA_TOOLCHAIN
+    if [ -n "$ANDROID_PRE_BUILD_PATHS" ]; then
+        export PATH=$ANDROID_PRE_BUILD_PATHS:$PATH
+    fi
+
     unset ANDROID_PRODUCT_OUT
     export ANDROID_PRODUCT_OUT=$(get_abs_build_var PRODUCT_OUT)
     export OUT=$ANDROID_PRODUCT_OUT
+
+    unset ANDROID_HOST_OUT
+    export ANDROID_HOST_OUT=$(get_abs_build_var HOST_OUT)
 
     # needed for building linux on MacOS
     # TODO: fix the path
@@ -133,26 +162,29 @@ function printconfig()
 function set_stuff_for_environment()
 {
     settitle
+    set_java_home
     setpaths
     set_sequence_number
-
-    # Don't try to do preoptimization until it works better on OSX.
-    export DISABLE_DEXPREOPT=true
 
     export ANDROID_BUILD_TOP=$(gettop)
 }
 
 function set_sequence_number()
 {
-    export BUILD_ENV_SEQUENCE_NUMBER=9
+    export BUILD_ENV_SEQUENCE_NUMBER=10
 }
 
 function settitle()
 {
     if [ "$STAY_OFF_MY_LAWN" = "" ]; then
-        local product=$(get_build_var TARGET_PRODUCT)
-        local variant=$(get_build_var TARGET_BUILD_VARIANT)
-        export PROMPT_COMMAND="echo -ne \"\033]0;[${product}-${variant}] ${USER}@${HOSTNAME}: ${PWD}\007\""
+        local product=$TARGET_PRODUCT
+        local variant=$TARGET_BUILD_VARIANT
+        local apps=$TARGET_BUILD_APPS
+        if [ -z "$apps" ]; then
+            export PROMPT_COMMAND="echo -ne \"\033]0;[${product}-${variant}] ${USER}@${HOSTNAME}: ${PWD}\007\""
+        else
+            export PROMPT_COMMAND="echo -ne \"\033]0;[$apps $variant] ${USER}@${HOSTNAME}: ${PWD}\007\""
+        fi
     fi
 }
 
@@ -295,7 +327,7 @@ function chooseproduct()
         if [ "$TARGET_SIMULATOR" = true ] ; then
             default_value=sim
         else
-            default_value=generic
+            default_value=full
         fi
     fi
 
@@ -376,11 +408,6 @@ function choosevariant()
     done
 }
 
-function tapas()
-{
-    choosecombo
-}
-
 function choosecombo()
 {
     choosesim $1
@@ -418,7 +445,8 @@ function add_lunch_combo()
 }
 
 # add the default one here
-add_lunch_combo generic-eng
+add_lunch_combo full-eng
+add_lunch_combo full_x86-eng
 
 # if we're on linux, add the simulator.  There is a special case
 # in lunch to deal with the simulator
@@ -431,9 +459,15 @@ function print_lunch_menu()
     local uname=$(uname)
     echo
     echo "You're building on" $uname
+    if [ "$(uname)" = "Darwin" ] ; then
+    	echo "  (ohai, koush!)"
+    fi
     echo
-    echo ${LUNCH_MENU_CHOICES[@]}
-    echo "Lunch menu... pick a combo:"
+    if [ "z${CM_DEVICES_ONLY}" != "z" ]; then
+       echo "Breakfast menu... pick a combo:"
+    else
+       echo "Lunch menu... pick a combo:"
+    fi
 
     local i=1
     local choice
@@ -443,8 +477,55 @@ function print_lunch_menu()
         i=$(($i+1))
     done
 
+    if [ "z${CM_DEVICES_ONLY}" != "z" ]; then
+       echo "... and don't forget the bacon!"
+    fi
+
     echo
 }
+
+function brunch()
+{
+    breakfast $*
+    if [ $? -eq 0 ]; then
+        mka bacon
+    else
+        echo "No such item in brunch menu. Try 'breakfast'"
+        return 1
+    fi
+    return $?
+}
+
+function breakfast()
+{
+    target=$1
+    CM_DEVICES_ONLY="true"
+    unset LUNCH_MENU_CHOICES
+    add_lunch_combo full-eng
+    for f in `/bin/ls vendor/cyanogen/vendorsetup.sh vendor/cyanogen/build/vendorsetup.sh 2> /dev/null`
+        do
+            echo "including $f"
+            . $f
+        done
+    unset f
+
+    if [ $# -eq 0 ]; then
+        # No arguments, so let's have the full menu
+        lunch
+    else
+        echo "z$target" | grep -q "-"
+        if [ $? -eq 0 ]; then
+            # A buildtype was specified, assume a full device name
+            lunch $target
+        else
+            # This is probably just the CM model name
+            lunch cyanogen_$target-eng
+        fi
+    fi
+    return $?
+}
+
+alias bib=breakfast
 
 function lunch()
 {
@@ -454,7 +535,7 @@ function lunch()
         answer=$1
     else
         print_lunch_menu
-        echo -n "Which would you like? [generic-eng] "
+        echo -n "Which would you like? [full-eng] "
         read answer
     fi
 
@@ -462,7 +543,7 @@ function lunch()
 
     if [ -z "$answer" ]
     then
-        selection=generic-eng
+        selection=full-eng
     elif [ "$answer" = "simulator" ]
     then
         selection=simulator
@@ -484,6 +565,8 @@ function lunch()
         return 1
     fi
 
+    export TARGET_BUILD_APPS=
+
     # special case the simulator
     if [ "$selection" = "simulator" ]
     then
@@ -496,6 +579,16 @@ function lunch()
         check_product $product
         if [ $? -ne 0 ]
         then
+            # if we can't find a product, try to grab it off the CM github
+            T=$(gettop)
+            pushd $T > /dev/null
+            build/tools/roomservice.py $product
+            popd > /dev/null
+            check_product $product
+        fi
+        if [ $? -ne 0 ]
+        then
+
             echo
             echo "** Don't have a product spec for: '$product'"
             echo "** Do you have the right repo manifest?"
@@ -528,6 +621,73 @@ function lunch()
 
     set_stuff_for_environment
     printconfig
+}
+
+# Configures the build to build unbundled apps.
+# Run tapas with one ore more app names (from LOCAL_PACKAGE_NAME)
+function tapas()
+{
+    local variant=$(echo -n $(echo $* | xargs -n 1 echo | grep -E '^(user|userdebug|eng)$'))
+    local apps=$(echo -n $(echo $* | xargs -n 1 echo | grep -E -v '^(user|userdebug|eng)$'))
+
+    if [ $(echo $variant | wc -w) -gt 1 ]; then
+        echo "tapas: Error: Multiple build variants supplied: $variant"
+        return
+    fi
+    if [ -z "$variant" ]; then
+        variant=eng
+    fi
+    if [ -z "$apps" ]; then
+        apps=all
+    fi
+
+    export TARGET_PRODUCT=full
+    export TARGET_BUILD_VARIANT=$variant
+    export TARGET_SIMULATOR=false
+    export TARGET_BUILD_TYPE=release
+    export TARGET_BUILD_APPS=$apps
+
+    set_stuff_for_environment
+    printconfig
+}
+
+function eat()
+{
+    if [ "$OUT" ] ; then
+        MODVERSION=`sed -n -e'/ro\.modversion/s/^.*CyanogenMod-//p' $OUT/system/build.prop`
+        ZIPFILE=update-cm-$MODVERSION-signed.zip
+        ZIPPATH=$OUT/$ZIPFILE
+        if [ ! -f $ZIPPATH ] ; then
+            echo "Nothing to eat"
+            return 1
+        fi
+        adb start-server # Prevent unexpected starting server message from adb get-state in the next line
+        if [ $(adb get-state) != device -a $(adb shell busybox test -e /sbin/recovery 2> /dev/null; echo $?) != 0 ] ; then
+            echo "No device is online. Waiting for one..."
+            echo "Please connect USB and/or enable USB debugging"
+            until [ $(adb get-state) = device -o $(adb shell busybox test -e /sbin/recovery 2> /dev/null; echo $?) = 0 ];do
+                sleep 1
+            done
+            echo "Device Found.."
+        fi
+        echo "Pushing $ZIPFILE to device"
+        if adb push $ZIPPATH /mnt/sdcard/ ; then
+            cat << EOF > /tmp/command
+--update_package=/sdcard/$ZIPFILE
+EOF
+            if adb push /tmp/command /cache/recovery/ ; then
+                echo "Rebooting into recovery for installation"
+                adb reboot recovery
+                # alternative way :
+                # adb shell "sync && reboot recovery && exit"
+            fi
+            rm /tmp/command
+        fi
+    else
+        echo "Nothing to eat"
+        return 1
+    fi
+    return $?
 }
 
 function gettop
@@ -606,7 +766,7 @@ function mm()
         elif [ ! "$M" ]; then
             echo "Couldn't locate a makefile from the current directory."
         else
-            ONE_SHOT_MAKEFILE=$M make -C $T files $@
+            ONE_SHOT_MAKEFILE=$M make -C $T all_modules $@
         fi
     fi
 }
@@ -623,9 +783,10 @@ function mmm()
         for DIR in $DIRS ; do
             DIR=`echo $DIR | sed -e 's:/$::'`
             if [ -f $DIR/Android.mk ]; then
-                TO_CHOP=`echo $T | wc -c | tr -d ' '`
-                # TO_CHOP=`expr $TO_CHOP + 1`
-                MFILE=`echo $PWD | cut -c${TO_CHOP}-`
+                TO_CHOP=`(cd -P -- $T && pwd -P) | wc -c | tr -d ' '`
+                TO_CHOP=`expr $TO_CHOP + 1`
+                START=`PWD= /bin/pwd`
+                MFILE=`echo $START | cut -c${TO_CHOP}-`
                 if [ "$MFILE" = "" ] ; then
                     MFILE=$DIR/Android.mk
                 else
@@ -637,13 +798,15 @@ function mmm()
                     ARGS="$ARGS snod"
                 elif [ "$DIR" = showcommands ]; then
                     ARGS="$ARGS showcommands"
+                elif [ "$DIR" = dist ]; then
+                    ARGS="$ARGS dist"
                 else
                     echo "No Android.mk in $DIR."
                     return 1
                 fi
             fi
         done
-        ONE_SHOT_MAKEFILE="$MAKEFILE" make -C $T $DASH_ARGS files $ARGS
+        ONE_SHOT_MAKEFILE="$MAKEFILE" make -C $T $DASH_ARGS all_modules $ARGS
     else
         echo "Couldn't locate the top of the tree.  Try setting TOP."
     fi
@@ -656,6 +819,17 @@ function croot()
         cd $(gettop)
     else
         echo "Couldn't locate the top of the tree.  Try setting TOP."
+    fi
+}
+
+function cout()
+{
+    croot
+    setpaths
+    if [ "$ANDROID_PRODUCT_OUT" ]; then
+        cd $ANDROID_PRODUCT_OUT
+    else
+        echo "Couldn't locate ANDROID_PRODUCT_OUT."
     fi
 }
 
@@ -770,7 +944,7 @@ function jgrep()
 
 function cgrep()
 {
-    find . -type f -name "*\.c*" -print0 | xargs -0 grep --color -n "$@"
+    find . -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' \) -print0 | xargs -0 grep --color -n "$@"
 }
 
 function resgrep()
@@ -985,14 +1159,15 @@ function godir () {
         echo "Usage: godir <regex>"
         return
     fi
+    T=$(gettop)
     if [[ ! -f $T/filelist ]]; then
         echo -n "Creating index..."
-        (cd $T; find . -wholename ./out -prune -o -type f > filelist)
+        (cd $T; find . -wholename ./out -prune -o -wholename ./.repo -prune -o -type f > filelist)
         echo " Done"
         echo ""
     fi
     local lines
-    lines=($(grep "$1" $T/filelist | sed -e 's/\/[^/]*$//' | sort | uniq)) 
+    lines=($(grep "$1" $T/filelist | sed -e 's/\/[^/]*$//' | sort | uniq))
     if [[ ${#lines[@]} = 0 ]]; then
         echo "Not found"
         return
@@ -1005,7 +1180,7 @@ function godir () {
             local line
             for line in ${lines[@]}; do
                 printf "%6s %s\n" "[$index]" $line
-                index=$(($index + 1)) 
+                index=$(($index + 1))
             done
             echo
             echo -n "Select one: "
@@ -1024,6 +1199,393 @@ function godir () {
     cd $T/$pathname
 }
 
+function cmremote()
+{
+    git remote rm cmremote 2> /dev/null
+    if [ ! -d .git ]
+    then
+        echo .git directory not found. Please run this from the root directory of the Android repository you wish to set up.
+    fi
+    GERRIT_REMOTE=$(cat .git/config  | grep git://github.com | awk '{ print $NF }' | sed s#git://github.com/##g)
+    if [ -z "$GERRIT_REMOTE" ]
+    then
+        echo Unable to set up the git remote, are you in the root of the repo?
+        return 0
+    fi
+    CMUSER=`git config --get review.review.cyanogenmod.com.username`
+    if [ -z "$CMUSER" ]
+    then
+        git remote add cmremote ssh://review.cyanogenmod.com:29418/$GERRIT_REMOTE
+    else
+        git remote add cmremote ssh://$CMUSER@review.cyanogenmod.com:29418/$GERRIT_REMOTE
+    fi
+    echo You can now push to "cmremote".
+}
+
+# deprecated
+function _cmgerrit()
+{
+        ##################################################################################
+        # Gerrit tool for easiness of submitting changes to CM repos                     #
+        # Wes Garner                                                                     #
+        # Usage: cmgerrit <for/changes> <branch/change-id>                               #
+        # Note: for = new submissions, changes = new patch set for current submission    #
+        ##################################################################################
+
+    local mode=$1
+    local target=$2
+
+    repo=$(cat .git/config  | grep git://github.com | awk '{ print $NF }' | sed s#git://github.com/##g)
+    user=`git config --get review.review.cyanogenmod.com.username`
+
+    if [ -z "$repo" ]; then
+        echo "Unable to detect current repo, are you in the root of the repo you would like to submit patches for?"
+        return
+    fi
+
+    if [ -z $mode ] || [ -z $target ]; then
+        echo "CyanogenMod Gerrit Usage: "
+        echo "      Must be in root of repo that patches are being submitted for"
+        echo "      cmgerrit <for/changes> <branch/change-id>"
+        echo ""
+    fi
+    if [ -z $mode ]; then
+        echo -n "Is this a new change or a new patchset to a current change? (for = new, changes = patch set): "
+        read mode
+        if [ -z $mode ]; then
+            echo "I'm sorry you didn't enter a mode, please try again."
+            return
+        fi
+    fi
+    if [ -z $target ]; then
+        echo -n "What is the branch (for a new change) OR change-id (for a current change) you are working with: "
+        read target
+        if [ -z $target ]; then
+            echo "I'm sorry you didn't enter a target, please try again."
+            return
+        fi
+    fi
+    echo "Pushing patch set to $repo, Mode: $mode, Target: $target"
+
+    if [ -z "$user" ]
+    then
+        git push ssh://review.cyanogenmod.com:29418/$repo HEAD:refs/$mode/$target
+    else
+        git push ssh://$user@review.cyanogenmod.com:29418/$repo HEAD:refs/$mode/$target
+    fi
+}
+
+function cmgerrit() {
+    if [ $# -eq 0 ]; then
+        $FUNCNAME help
+        return 1
+    fi
+    local user=`git config --get review.review.cyanogenmod.com.username`
+    local review=`git config --get remote.github.review`
+    local project=`git config --get remote.github.projectname`
+    local command=$1
+    shift
+    case $command in
+        help)
+            if [ $# -eq 0 ]; then
+                cat <<EOF
+Usage:
+    $FUNCNAME COMMAND [OPTIONS] [CHANGE-ID[/PATCH-SET]][{@|^|~|:}ARG] [-- ARGS]
+
+Commands:
+    fetch   Just fetch the change as FETCH_HEAD
+    help    Show this help, or for a specific command
+    pull    Pull a change into current branch
+    push    Push HEAD or a local branch to Gerrit for a specific branch
+
+Any other Git commands that support refname would work as:
+    git fetch URL CHANGE && git COMMAND OPTIONS FETCH_HEAD{@|^|~|:}ARG -- ARGS
+
+See '$FUNCNAME help COMMAND' for more information on a specific command.
+
+Example:
+    $FUNCNAME checkout -b topic 1234/5
+works as:
+    git fetch http://DOMAIN/p/PROJECT refs/changes/34/1234/5 \\
+      && git checkout -b topic FETCH_HEAD
+will checkout a new branch 'topic' base on patch-set 5 of change 1234.
+Patch-set 1 will be fetched if omitted.
+EOF
+                return
+            fi
+            case $1 in
+                __cmg_*) echo "For internal use only." ;;
+                changes|for)
+                    if [ "$FUNCNAME" = "cmgerrit" ]; then
+                        echo "'$FUNCNAME $1' is deprecated."
+                    fi
+                    ;;
+                help) $FUNCNAME help ;;
+                fetch|pull) cat <<EOF
+usage: $FUNCNAME $1 [OPTIONS] CHANGE-ID[/PATCH-SET]
+
+works as:
+    git $1 OPTIONS http://DOMAIN/p/PROJECT \\
+      refs/changes/HASH/CHANGE-ID/{PATCH-SET|1}
+
+Example:
+    $FUNCNAME $1 1234
+will $1 patch-set 1 of change 1234
+EOF
+                    ;;
+                push) cat <<EOF
+usage: $FUNCNAME push [OPTIONS] [LOCAL_BRANCH:]REMOTE_BRANCH
+
+works as:
+    git push OPTIONS ssh://USER@DOMAIN:29418/PROJECT \\
+      {LOCAL_BRANCH|HEAD}:refs/for/REMOTE_BRANCH
+
+Example:
+    $FUNCNAME push fix6789:gingerbread
+will push local branch 'fix6789' to Gerrit for branch 'gingerbread'.
+HEAD will be pushed from local if omitted.
+EOF
+                    ;;
+                *)
+                    $FUNCNAME __cmg_err_not_supported $1 && return
+                    cat <<EOF
+usage: $FUNCNAME $1 [OPTIONS] CHANGE-ID[/PATCH-SET][{@|^|~|:}ARG] [-- ARGS]
+
+works as:
+    git fetch http://DOMAIN/p/PROJECT \\
+      refs/changes/HASH/CHANGE-ID/{PATCH-SET|1} \\
+      && git $1 OPTIONS FETCH_HEAD{@|^|~|:}ARG -- ARGS
+EOF
+                    ;;
+            esac
+            ;;
+        __cmg_get_ref)
+            $FUNCNAME __cmg_err_no_arg $command $# && return 1
+            local change_id patchset_id hash
+            case $1 in
+                */*)
+                    change_id=${1%%/*}
+                    patchset_id=${1#*/}
+                    ;;
+                *)
+                    change_id=$1
+                    patchset_id=1
+                    ;;
+            esac
+            hash=$(($change_id % 100))
+            case $hash in
+                [0-9]) hash="0$hash" ;;
+            esac
+            echo "refs/changes/$hash/$change_id/$patchset_id"
+            ;;
+        fetch|pull)
+            $FUNCNAME __cmg_err_no_arg $command $# help && return 1
+            $FUNCNAME __cmg_err_not_repo && return 1
+            local change=$1
+            shift
+            git $command $@ http://$review/p/$project \
+                $($FUNCNAME __cmg_get_ref $change) || return 1
+            ;;
+        push)
+            $FUNCNAME __cmg_err_no_arg $command $# help && return 1
+            $FUNCNAME __cmg_err_not_repo && return 1
+            if [ -z "$user" ]; then
+                echo >&2 "Gerrit username not found."
+                return 1
+            fi
+            local local_branch remote_branch
+            case $1 in
+                *:*)
+                    local_branch=${1%:*}
+                    remote_branch=${1##*:}
+                    ;;
+                *)
+                    local_branch=HEAD
+                    remote_branch=$1
+                    ;;
+            esac
+            shift
+            git push $@ ssh://$user@$review:29418/$project \
+                $local_branch:refs/for/$remote_branch || return 1
+            ;;
+        changes|for)
+            if [ "$FUNCNAME" = "cmgerrit" ]; then
+                echo >&2 "'$FUNCNAME $command' is deprecated."
+                _cmgerrit $command $@
+            fi
+            ;;
+        __cmg_err_no_arg)
+            if [ $# -lt 2 ]; then
+                echo >&2 "'$FUNCNAME $command' missing argument."
+            elif [ $2 -eq 0 ]; then
+                if [ -n "$3" ]; then
+                    $FUNCNAME help $1
+                else
+                    echo >&2 "'$FUNCNAME $1' missing argument."
+                fi
+            else
+                return 1
+            fi
+            ;;
+        __cmg_err_not_repo)
+            if [ -z "$review" -o -z "$project" ]; then
+                echo >&2 "Not currently in any reviewable repository."
+            else
+                return 1
+            fi
+            ;;
+        __cmg_err_not_supported)
+            $FUNCNAME __cmg_err_no_arg $command $# && return
+            case $1 in
+                #TODO: filter more git commands that don't use refname
+                init|add|rm|mv|status|clone|remote|bisect|config|stash)
+                    echo >&2 "'$FUNCNAME $1' is not supported."
+                    ;;
+                *) return 1 ;;
+            esac
+            ;;
+    #TODO: other special cases?
+        *)
+            $FUNCNAME __cmg_err_not_supported $command && return 1
+            $FUNCNAME __cmg_err_no_arg $command $# help && return 1
+            $FUNCNAME __cmg_err_not_repo && return 1
+            local args="$@"
+            local change pre_args refs_arg post_args
+            case "$args" in
+                *--\ *)
+                    pre_args=${args%%-- *}
+                    post_args="-- ${args#*-- }"
+                    ;;
+                *) pre_args="$args" ;;
+            esac
+            args=($pre_args)
+            pre_args=
+            if [ ${#args[@]} -gt 0 ]; then
+                change=${args[${#args[@]}-1]}
+            fi
+            if [ ${#args[@]} -gt 1 ]; then
+                pre_args=${args[0]}
+                for ((i=1; i<${#args[@]}-1; i++)); do
+                    pre_args="$pre_args ${args[$i]}"
+                done
+            fi
+            while ((1)); do
+                case $change in
+                    ""|--)
+                        $FUNCNAME help $command
+                        return 1
+                        ;;
+                    *@*)
+                        if [ -z "$refs_arg" ]; then
+                            refs_arg="@${change#*@}"
+                            change=${change%%@*}
+                        fi
+                        ;;
+                    *~*)
+                        if [ -z "$refs_arg" ]; then
+                            refs_arg="~${change#*~}"
+                            change=${change%%~*}
+                        fi
+                        ;;
+                    *^*)
+                        if [ -z "$refs_arg" ]; then
+                            refs_arg="^${change#*^}"
+                            change=${change%%^*}
+                        fi
+                        ;;
+                    *:*)
+                        if [ -z "$refs_arg" ]; then
+                            refs_arg=":${change#*:}"
+                            change=${change%%:*}
+                        fi
+                        ;;
+                    *) break ;;
+                esac
+            done
+            $FUNCNAME fetch $change \
+                && git $command $pre_args FETCH_HEAD$refs_arg $post_args \
+                || return 1
+            ;;
+    esac
+}
+
+function cmrebase() {
+    local repo=$1
+    local refs=$2
+    local pwd="$(pwd)"
+    local dir="$(gettop)/$repo"
+
+    if [ -z $repo ] || [ -z $refs ]; then
+        echo "CyanogenMod Gerrit Rebase Usage: "
+        echo "      cmrebase <path to project> <patch IDs on Gerrit>"
+        echo "      The patch IDs appear on the Gerrit commands that are offered."
+        echo "      They consist on a series of numbers and slashes, after the text"
+        echo "      refs/changes. For example, the ID in the following command is 26/8126/2"
+        echo ""
+        echo "      git[...]ges_apps_Camera refs/changes/26/8126/2 && git cherry-pick FETCH_HEAD"
+        echo ""
+        return
+    fi
+
+    if [ ! -d $dir ]; then
+        echo "Directory $dir doesn't exist in tree."
+        return
+    fi
+    cd $dir
+    repo=$(cat .git/config  | grep git://github.com | awk '{ print $NF }' | sed s#git://github.com/##g)
+    echo "Starting branch..."
+    repo start tmprebase .
+    echo "Bringing it up to date..."
+    repo sync .
+    echo "Fetching change..."
+    git fetch "http://review.cyanogenmod.com/p/$repo" "refs/changes/$refs" && git cherry-pick FETCH_HEAD
+    if [ "$?" != "0" ]; then
+        echo "Error cherry-picking. Not uploading!"
+        return
+    fi
+    echo "Uploading..."
+    repo upload .
+    echo "Cleaning up..."
+    repo abandon tmprebase .
+    cd $pwd
+}
+
+function mka() {
+    case `uname -s` in
+        Darwin)
+            make -j `sysctl hw.ncpu|cut -d" " -f2` "$@"
+            ;;
+        *)
+            schedtool -B -n 1 -e ionice -n 1 make -j `cat /proc/cpuinfo | grep "^processor" | wc -l` "$@"
+            ;;
+    esac
+}
+
+function reposync() {
+    case `uname -s` in
+        Darwin)
+            repo sync -j 4 "$@"
+            ;;
+        *)
+            schedtool -B -n 1 -e ionice -n 1 repo sync -j 4 "$@"
+            ;;
+    esac
+}
+
+# Force JAVA_HOME to point to java 1.6 if it isn't already set
+function set_java_home() {
+    if [ ! "$JAVA_HOME" ]; then
+        case `uname -s` in
+            Darwin)
+                export JAVA_HOME=/System/Library/Frameworks/JavaVM.framework/Versions/1.6/Home
+                ;;
+            *)
+                export JAVA_HOME=/usr/lib/jvm/java-6-sun
+                ;;
+        esac
+    fi
+}
+
 # determine whether arrays are zero-based (bash) or one-based (zsh)
 _xarray=(a b c)
 if [ -z "${_xarray[${#_xarray[@]}]}" ]
@@ -1035,7 +1597,7 @@ fi
 unset _xarray
 
 # Execute the contents of any vendorsetup.sh files we can find.
-for f in `/bin/ls vendor/*/vendorsetup.sh vendor/*/build/vendorsetup.sh 2> /dev/null`
+for f in `{ setopt nullglob; /bin/ls vendor/*/vendorsetup.sh vendor/*/build/vendorsetup.sh device/*/*/vendorsetup.sh; } 2> /dev/null`
 do
     echo "including $f"
     . $f

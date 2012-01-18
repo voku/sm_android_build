@@ -25,10 +25,21 @@
 # it includes.
 #
 
+# Unbundled apps will be built with the default product config.
+ifneq ($(TARGET_BUILD_APPS),)
 PRODUCT_MAKEFILES := \
+    $(LOCAL_DIR)/core.mk \
     $(LOCAL_DIR)/generic.mk \
-    $(LOCAL_DIR)/min_dev.mk \
-    $(LOCAL_DIR)/sdk.mk \
-    $(LOCAL_DIR)/sim.mk \
+    $(LOCAL_DIR)/full.mk
+else
+PRODUCT_MAKEFILES := \
+    $(LOCAL_DIR)/core.mk \
+    $(LOCAL_DIR)/generic.mk \
+    $(LOCAL_DIR)/generic_armv5.mk \
     $(LOCAL_DIR)/generic_x86.mk \
-    $(LOCAL_DIR)/generic_with_google.mk
+    $(LOCAL_DIR)/full.mk \
+    $(LOCAL_DIR)/full_x86.mk \
+    $(LOCAL_DIR)/sdk.mk \
+    $(LOCAL_DIR)/sdk_x86.mk \
+    $(LOCAL_DIR)/sim.mk
+endif

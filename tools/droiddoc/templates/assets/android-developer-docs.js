@@ -141,18 +141,20 @@ function init() {
     cookiePath = "reference_";
   } else if (location.href.indexOf("/guide/") != -1) {
     cookiePath = "guide_";
+  } else if (location.href.indexOf("/sdk/") != -1) {
+    cookiePath = "sdk_";
   } else if (location.href.indexOf("/resources/") != -1) {
     cookiePath = "resources_";
   }
 
   if (!isMobile) {
     $("#resize-packages-nav").resizable({handles: "s", resize: function(e, ui) { resizePackagesHeight(); } });
-    $(".side-nav-resizable").resizable({handles: "e", resize: function(e, ui) { resizeWidth(); } });
+    $("#side-nav").resizable({handles: "e", resize: function(e, ui) { resizeWidth(); } });
     var cookieWidth = readCookie(cookiePath+'width');
     var cookieHeight = readCookie(cookiePath+'height');
     if (cookieWidth) {
       restoreWidth(cookieWidth);
-    } else if ($(".side-nav-resizable").length) {
+    } else if ($("#side-nav").length) {
       resizeWidth();
     }
     if (cookieHeight) {
@@ -171,12 +173,12 @@ function highlightNav(fullPageName) {
   var lastSlashPos = fullPageName.lastIndexOf("/");
   var firstSlashPos;
   if (fullPageName.indexOf("/guide/") != -1) {
-      firstSlashPos = fullPageName.indexOf("/guide/");
-    } else if (fullPageName.indexOf("/sdk/") != -1) {
-      firstSlashPos = fullPageName.indexOf("/sdk/");
-    } else {
-      firstSlashPos = fullPageName.indexOf("/resources/");
-    }
+    firstSlashPos = fullPageName.indexOf("/guide/");
+  } else if (fullPageName.indexOf("/sdk/") != -1) {
+    firstSlashPos = fullPageName.indexOf("/sdk/");
+  } else if (fullPageName.indexOf("/resources/") != -1) {
+    firstSlashPos = fullPageName.indexOf("/resources/");
+  }
   if (lastSlashPos == (fullPageName.length - 1)) { // if the url ends in slash (add 'index.html')
     fullPageName = fullPageName + "index.html";
   }
@@ -184,7 +186,7 @@ function highlightNav(fullPageName) {
   var pathPageName = fullPageName.slice(firstSlashPos, htmlPos + 5);
   var link = $("#devdoc-nav a[href$='"+ pathPageName+"']");
   if ((link.length == 0) && ((fullPageName.indexOf("/guide/") != -1) || (fullPageName.indexOf("/resources/") != -1))) { 
-// if there's no match, then let's backstep through the directory until we find an index.html page that matches our ancestor directories (only for dev guide)
+// if there's no match, then let's backstep through the directory until we find an index.html page that matches our ancestor directories (only for dev guide and resources)
     lastBackstep = pathPageName.lastIndexOf("/");
     while (link.length == 0) {
       backstepDirectory = pathPageName.lastIndexOf("/", lastBackstep);
@@ -193,11 +195,25 @@ function highlightNav(fullPageName) {
       if (lastBackstep == 0) break;
     }
   }
+
+  // add 'selected' to the <li> or <div> that wraps this <a>
   link.parent().addClass('selected');
-  if (link.parent().parent().is(':hidden')) {
-    toggle(link.parent().parent().parent(), false);
-  } else if (link.parent().parent().hasClass('toggle-list')) {
-    toggle(link.parent().parent(), false);
+
+  // if we're in a toggleable root link (<li class=toggle-list><div><a>)
+  if (link.parent().parent().hasClass('toggle-list')) {
+    toggle(link.parent().parent(), false); // open our own list
+    // then also check if we're in a third-level nested list that's toggleable
+    if (link.parent().parent().parent().is(':hidden')) {
+      toggle(link.parent().parent().parent().parent(), false); // open the super parent list
+    }
+  }
+  // if we're in a normal nav link (<li><a>) and the parent <ul> is hidden
+  else if (link.parent().parent().is(':hidden')) {
+    toggle(link.parent().parent().parent(), false); // open the parent list
+    // then also check if the parent list is also nested in a hidden list
+    if (link.parent().parent().parent().parent().is(':hidden')) {
+      toggle(link.parent().parent().parent().parent().parent(), false); // open the super parent list
+    }
   }
 }
 
@@ -235,10 +251,8 @@ function resizeHeight() {
     $("#classes-nav").css({height:swapperHeight - parseInt(resizePackagesNav.css("height")) + "px"});
     $("#nav-tree").css({height:swapperHeight + "px"});
 
-  // If in the dev guide docs, also resize the "devdoc-nav" div
-  } else if (href.indexOf("/guide/") != -1) {
-    $("#devdoc-nav").css({height:sidenav.css("height")});
-  } else if (href.indexOf("/resources/") != -1) {
+  // Also resize the "devdoc-nav" div
+  } else if ($("#devdoc-nav").length) {
     $("#devdoc-nav").css({height:sidenav.css("height")});
   }
 
@@ -254,6 +268,7 @@ function resizeHeight() {
  * which creates the resizable side bar */
 function resizeWidth() {
   var windowWidth = $(window).width() + "px";
+  var sidenav = $("#side-nav");
   if (sidenav.length) {
     var sidenavWidth = sidenav.css("width");
   } else {
@@ -269,7 +284,7 @@ function resizeWidth() {
   classesNav.css({width:sidenavWidth});
   $("#packages-nav").css({width:sidenavWidth});
 
-  if ($(".side-nav-resizable").length) { // Must check if the nav is resizable because IE6 calls resizeWidth() from resizeAll() for all pages
+  if (sidenav.length) { // Must check if the nav exists because IE6 calls resizeWidth() from resizeAll() for all pages
     var basePath = getBaseUri(location.pathname);
     var section = basePath.substring(1,basePath.indexOf("/",1));
     writeCookie("width", sidenavWidth, section, null);
@@ -335,7 +350,7 @@ $(window).unload(function(){
 });
 
 function toggle(obj, slide) {
-  var ul = $("ul", obj);
+  var ul = $("ul:first", obj);
   var li = ul.parent();
   if (li.hasClass("closed")) {
     if (slide) {
@@ -357,7 +372,7 @@ function toggle(obj, slide) {
 function buildToggleLists() {
   $(".toggle-list").each(
     function(i) {
-      $("div", this).append("<a class='toggle-img' href='#' title='show pages' onClick='toggle(this.parentNode.parentNode, true); return false;'></a>");
+      $("div:first", this).append("<a class='toggle-img' href='#' title='show pages' onClick='toggle(this.parentNode.parentNode, true); return false;'></a>");
       $(this).addClass("closed");
     });
 }
@@ -419,43 +434,6 @@ function scrollIntoView(nav) {
     }
   }
 }
-
-function toggleAllInherited(linkObj, expand) {
-  var a = $(linkObj);
-  var table = $(a.parent().parent().parent());
-  var expandos = $(".jd-expando-trigger", table);
-  if ( (expand == null && a.text() == "[Expand]") || expand ) {
-    expandos.each(function(i) {
-      toggleInherited(this, true);
-    });
-    a.text("[Collapse]");
-  } else if ( (expand == null && a.text() == "[Collapse]") || (expand == false) ) {
-    expandos.each(function(i) {
-      toggleInherited(this, false);
-    });
-    a.text("[Expand]");
-  }
-  return false;
-}
-
-function toggleAllSummaryInherited(linkObj) {
-  var a = $(linkObj);
-  var content = $(a.parent().parent().parent());
-  var toggles = $(".toggle-all", content);
-  if (a.text() == "[Expand All]") {
-    toggles.each(function(i) {
-      toggleAllInherited(this, true);
-    });
-    a.text("[Collapse All]");
-  } else {
-    toggles.each(function(i) {
-      toggleAllInherited(this, false);
-    });
-    a.text("[Expand All]");
-  }
-  return false;
-}
-
 
 function changeTabLang(lang) {
   var nodes = $("#header-tabs").find("."+lang);

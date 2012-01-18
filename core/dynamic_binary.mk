@@ -14,7 +14,12 @@ endif
 
 LOCAL_UNSTRIPPED_PATH := $(strip $(LOCAL_UNSTRIPPED_PATH))
 ifeq ($(LOCAL_UNSTRIPPED_PATH),)
-  LOCAL_UNSTRIPPED_PATH := $(TARGET_OUT_$(LOCAL_MODULE_CLASS)_UNSTRIPPED)
+  ifeq ($(LOCAL_MODULE_PATH),)
+    LOCAL_UNSTRIPPED_PATH := $(TARGET_OUT_$(LOCAL_MODULE_CLASS)_UNSTRIPPED)
+  else
+    # We have to figure out the corresponding unstripped path if LOCAL_MODULE_PATH is customized.
+    LOCAL_UNSTRIPPED_PATH := $(TARGET_OUT_UNSTRIPPED)/$(patsubst $(PRODUCT_OUT)/%,%,$(LOCAL_MODULE_PATH))
+  endif
 endif
 
 # The name of the target file, without any path prepended.
@@ -70,11 +75,11 @@ ifeq ($(LOCAL_COMPRESS_MODULE_SYMBOLS),true)
 $(error Symbol compression not yet supported.)
 compress_output := $(intermediates)/COMPRESSED-$(LOCAL_BUILT_MODULE_STEM)
 
-#TODO: write the real $(SOSLIM) rule.
+#TODO: write the real $(STRIPPER) rule.
 #TODO: define a rule to build TARGET_SYMBOL_FILTER_FILE, and
 #      make it depend on ALL_ORIGINAL_DYNAMIC_BINARIES.
 $(compress_output): $(compress_input) $(TARGET_SYMBOL_FILTER_FILE) | $(ACP)
-	@echo "target Compress Symbols: $(PRIVATE_MODULE) ($@)"
+	@echo -e ${CL_PFX}"target Compress Symbols:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
 	$(copy-file-to-target)
 else
 # Skip this step.
@@ -91,6 +96,13 @@ prelink_input := $(compress_output)
 # around, so we have to use this version.
 prelink_output := $(LOCAL_UNSTRIPPED_PATH)/$(LOCAL_MODULE_SUBDIR)$(LOCAL_BUILT_MODULE_STEM)
 
+# Skip prelinker if it is FDO instrumentation build.
+ifneq ($(strip $(BUILD_FDO_INSTRUMENT)),)
+ifneq ($(LOCAL_NO_FDO_SUPPORT),true)
+LOCAL_PRELINK_MODULE := false
+endif
+endif
+
 ifeq ($(LOCAL_PRELINK_MODULE),true)
 $(prelink_output): $(prelink_input) $(TARGET_PRELINKER_MAP) $(APRIORI)
 	$(transform-to-prelinked)
@@ -103,11 +115,11 @@ else
 # use cp(1) instead.
 ifneq ($(LOCAL_ACP_UNAVAILABLE),true)
 $(prelink_output): $(prelink_input) | $(ACP)
-	@echo "target Non-prelinked: $(PRIVATE_MODULE) ($@)"
+	@echo -e ${CL_PFX}"target Non-prelinked:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
 	$(copy-file-to-target)
 else
 $(prelink_output): $(prelink_input)
-	@echo "target Non-prelinked: $(PRIVATE_MODULE) ($@)"
+	@echo -e ${CL_PFX}"target Non-prelinked:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
 	$(copy-file-to-target-with-cp)
 endif
 endif
@@ -125,7 +137,7 @@ endif
 
 ifeq ($(LOCAL_STRIP_MODULE),true)
 # Strip the binary
-$(strip_output): $(strip_input) | $(SOSLIM)
+$(strip_output): $(strip_input) | $(TARGET_STRIP)
 	$(transform-to-stripped)
 else
 # Don't strip the binary, just copy it.  We can't skip this step
@@ -135,11 +147,11 @@ else
 # use cp(1) instead.
 ifneq ($(LOCAL_ACP_UNAVAILABLE),true)
 $(strip_output): $(strip_input) | $(ACP)
-	@echo "target Unstripped: $(PRIVATE_MODULE) ($@)"
+	@echo -e ${CL_PFX}"target Unstripped:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
 	$(copy-file-to-target)
 else
 $(strip_output): $(strip_input)
-	@echo "target Unstripped: $(PRIVATE_MODULE) ($@)"
+	@echo -e ${CL_PFX}"target Unstripped:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
 	$(copy-file-to-target-with-cp)
 endif
 endif # LOCAL_STRIP_MODULE

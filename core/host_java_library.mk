@@ -23,14 +23,50 @@ LOCAL_MODULE_SUFFIX := $(COMMON_JAVA_PACKAGE_SUFFIX)
 LOCAL_IS_HOST_MODULE := true
 LOCAL_BUILT_MODULE_STEM := javalib.jar
 
+ifeq ($(LOCAL_BUILD_HOST_DEX),true)
+intermediates := $(call local-intermediates-dir)
+intermediates.COMMON := $(call local-intermediates-dir,COMMON)
+
+full_classes_jar := $(intermediates.COMMON)/classes.jar
+built_dex := $(intermediates.COMMON)/classes.dex
+
+LOCAL_INTERMEDIATE_TARGETS += \
+    $(full_classes_jar) \
+    $(built_dex)
+
+LOCAL_INTERMEDIATE_SOURCE_DIR := $(intermediates.COMMON)/src
+endif # LOCAL_BUILD_HOST_DEX
+
 include $(BUILD_SYSTEM)/base_rules.mk
 
-# Make sure overridecheck is built before any other java.
-ifeq ($(LOCAL_MODULE),overridecheck)
-overridecheck_dependency :=
-else
-overridecheck_dependency := $(OVERRIDECHECK)
+ifeq ($(LOCAL_BUILD_HOST_DEX),true)
+$(LOCAL_INTERMEDIATE_TARGETS): \
+	PRIVATE_CLASS_INTERMEDIATES_DIR := $(intermediates.COMMON)/classes
+$(LOCAL_INTERMEDIATE_TARGETS): \
+	PRIVATE_SOURCE_INTERMEDIATES_DIR := $(LOCAL_INTERMEDIATE_SOURCE_DIR)
+
+$(cleantarget): PRIVATE_CLEAN_FILES += $(intermediates.COMMON)
+
+$(full_classes_jar): PRIVATE_JAVACFLAGS := $(LOCAL_JAVACFLAGS)
+$(full_classes_jar): $(java_sources) $(java_resource_sources) $(full_java_lib_deps) $(jar_manifest_file)
+	$(transform-host-java-to-package)
+
+$(built_dex): PRIVATE_INTERMEDIATES_DIR := $(intermediates.COMMON)
+$(built_dex): PRIVATE_DX_FLAGS := $(LOCAL_DX_FLAGS)
+$(built_dex): $(full_classes_jar) $(DX)
+	$(transform-classes.jar-to-dex)
+
+$(LOCAL_BUILT_MODULE): PRIVATE_DEX_FILE := $(built_dex)
+$(LOCAL_BUILT_MODULE): $(built_dex) $(java_resource_sources) | $(AAPT)
+	@echo -e ${CL_PFX}"Host Jar:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
+	$(create-empty-package)
+	$(add-dex-to-package)
+ifneq ($(extra_jar_args),)
+	$(add-java-resources-to-package)
 endif
 
-$(LOCAL_BUILT_MODULE): $(java_sources) $(java_resource_sources) $(full_java_lib_deps) | $(overridecheck_dependency)
+else
+$(LOCAL_BUILT_MODULE): PRIVATE_JAVACFLAGS := $(LOCAL_JAVACFLAGS)
+$(LOCAL_BUILT_MODULE): $(java_sources) $(java_resource_sources) $(full_java_lib_deps) $(jar_manifest_file)
 	$(transform-host-java-to-package)
+endif  # LOCAL_BUILD_HOST_DEX

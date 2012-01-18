@@ -83,17 +83,18 @@ OPTIONS.replace_ota_keys = False
 OPTIONS.tag_changes = ("-test-keys", "+release-keys")
 
 def GetApkCerts(tf_zip):
-  certmap = {}
-  for line in tf_zip.read("META/apkcerts.txt").split("\n"):
-    line = line.strip()
-    if not line: continue
-    m = re.match(r'^name="(.*)"\s+certificate="(.*)\.x509\.pem"\s+'
-                 r'private_key="\2\.pk8"$', line)
-    if not m:
-      raise SigningError("failed to parse line from apkcerts.txt:\n" + line)
-    certmap[m.group(1)] = OPTIONS.key_map.get(m.group(2), m.group(2))
-  for apk, cert in OPTIONS.extra_apks.iteritems():
+  certmap = common.ReadApkCerts(tf_zip)
+
+  # apply the key remapping to the contents of the file
+  for apk, cert in certmap.iteritems():
     certmap[apk] = OPTIONS.key_map.get(cert, cert)
+
+  # apply all the -e options, overriding anything in the file
+  for apk, cert in OPTIONS.extra_apks.iteritems():
+    if not cert:
+      cert = "PRESIGNED"
+    certmap[apk] = OPTIONS.key_map.get(cert, cert)
+
   return certmap
 
 
@@ -112,68 +113,6 @@ def CheckAllApksSigned(input_tf_zip, apk_key_map):
     print "\nUse '-e <apkname>=' to specify a key (which may be an"
     print "empty string to not sign this apk)."
     sys.exit(1)
-
-
-def SharedUserForApk(data):
-  tmp = tempfile.NamedTemporaryFile()
-  tmp.write(data)
-  tmp.flush()
-
-  p = common.Run(["aapt", "dump", "xmltree", tmp.name, "AndroidManifest.xml"],
-                 stdout=subprocess.PIPE)
-  data, _ = p.communicate()
-  if p.returncode != 0:
-    raise ExternalError("failed to run aapt dump")
-  lines = data.split("\n")
-  for i in lines:
-    m = re.match(r'^\s*A: android:sharedUserId\([0-9a-fx]*\)="([^"]*)" .*$', i)
-    if m:
-      return m.group(1)
-  return None
-
-
-def CheckSharedUserIdsConsistent(input_tf_zip, apk_key_map):
-  """Check that all packages that request the same shared user id are
-  going to be signed with the same key."""
-
-  shared_user_apks = {}
-  maxlen = len("(unknown key)")
-
-  for info in input_tf_zip.infolist():
-    if info.filename.endswith(".apk"):
-      data = input_tf_zip.read(info.filename)
-
-      name = os.path.basename(info.filename)
-      shared_user = SharedUserForApk(data)
-      key = apk_key_map[name]
-      maxlen = max(maxlen, len(key))
-
-      if shared_user is not None:
-        shared_user_apks.setdefault(
-            shared_user, {}).setdefault(key, []).append(name)
-
-  errors = []
-  for k, v in shared_user_apks.iteritems():
-    # each shared user should have exactly one key used for all the
-    # apks that want that user.
-    if len(v) > 1:
-      errors.append((k, v))
-
-  if not errors: return
-
-  print "ERROR:  shared user inconsistency.  All apks wanting to use"
-  print "        a given shared user must be signed with the same key."
-  print
-  errors.sort()
-  for user, keys in errors:
-    print 'shared user id "%s":' % (user,)
-    for key, apps in keys.iteritems():
-      print '  %-*s   %s' % (maxlen, key or "(unknown key)", apps[0])
-      for a in apps[1:]:
-        print (' ' * (maxlen+5)) + a
-    print
-
-  sys.exit(1)
 
 
 def SignApk(data, keyname, pw):
@@ -203,7 +142,7 @@ def SignApks(input_tf_zip, output_tf_zip, apk_key_map, key_passwords):
     if info.filename.endswith(".apk"):
       name = os.path.basename(info.filename)
       key = apk_key_map[name]
-      if key:
+      if key not in common.SPECIAL_CERT_STRINGS:
         print "    signing: %-*s (%s)" % (maxsize, name, key)
         signed_data = SignApk(data, key, key_passwords[key])
         output_tf_zip.writestr(out_info, signed_data)
@@ -221,6 +160,18 @@ def SignApks(input_tf_zip, output_tf_zip, apk_key_map, key_passwords):
       output_tf_zip.writestr(out_info, data)
 
 
+def EditTags(tags):
+  """Given a string containing comma-separated tags, apply the edits
+  specified in OPTIONS.tag_changes and return the updated string."""
+  tags = set(tags.split(","))
+  for ch in OPTIONS.tag_changes:
+    if ch[0] == "-":
+      tags.discard(ch[1:])
+    elif ch[0] == "+":
+      tags.add(ch[1:])
+  return ",".join(sorted(tags))
+
+
 def RewriteProps(data):
   output = []
   for line in data.split("\n"):
@@ -229,24 +180,17 @@ def RewriteProps(data):
     if line and line[0] != '#':
       key, value = line.split("=", 1)
       if key == "ro.build.fingerprint":
-        pieces = line.split("/")
-        tags = set(pieces[-1].split(","))
-        for ch in OPTIONS.tag_changes:
-          if ch[0] == "-":
-            tags.discard(ch[1:])
-          elif ch[0] == "+":
-            tags.add(ch[1:])
-        line = "/".join(pieces[:-1] + [",".join(sorted(tags))])
+        pieces = value.split("/")
+        pieces[-1] = EditTags(pieces[-1])
+        value = "/".join(pieces)
       elif key == "ro.build.description":
-        pieces = line.split(" ")
+        pieces = value.split(" ")
         assert len(pieces) == 5
-        tags = set(pieces[-1].split(","))
-        for ch in OPTIONS.tag_changes:
-          if ch[0] == "-":
-            tags.discard(ch[1:])
-          elif ch[0] == "+":
-            tags.add(ch[1:])
-        line = " ".join(pieces[:-1] + [",".join(sorted(tags))])
+        pieces[-1] = EditTags(pieces[-1])
+        value = " ".join(pieces)
+      elif key == "ro.build.tags":
+        value = EditTags(value)
+      line = key + "=" + value
     if line != original_line:
       print "  replace: ", original_line
       print "     with: ", line
@@ -350,7 +294,6 @@ def main(argv):
 
   apk_key_map = GetApkCerts(input_zip)
   CheckAllApksSigned(input_zip, apk_key_map)
-  CheckSharedUserIdsConsistent(input_zip, apk_key_map)
 
   key_passwords = common.GetKeyPasswords(set(apk_key_map.values()))
   SignApks(input_zip, output_zip, apk_key_map, key_passwords)

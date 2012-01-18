@@ -21,16 +21,17 @@ class EdifyGenerator(object):
   """Class to generate scripts in the 'edify' recovery script language
   used from donut onwards."""
 
-  def __init__(self, version):
+  def __init__(self, version, info):
     self.script = []
     self.mounts = set()
     self.version = version
+    self.info = info
 
   def MakeTemporary(self):
     """Make a temporary script object whose commands can latter be
     appended to the parent script with AppendScript().  Used when the
     caller wants to generate script commands out-of-order."""
-    x = EdifyGenerator(self.version)
+    x = EdifyGenerator(self.version, self.info)
     x.mounts = self.mounts
     return x
 
@@ -105,6 +106,16 @@ class EdifyGenerator(object):
     self.script.append('set_perm(0, 0, 0777, "/tmp/backuptool.sh");')
     self.script.append(('run_program("/tmp/backuptool.sh", "%s");' % command))
 
+  def RunModelidCfg(self):
+    self.script.append('package_extract_file("system/bin/modelid_cfg.sh", "/tmp/modelid_cfg.sh");')
+    self.script.append('set_perm(0, 0, 0777, "/tmp/modelid_cfg.sh");')
+    self.script.append('run_program("/tmp/modelid_cfg.sh");')
+
+  def RunVerifyCachePartitionSize(self):
+    self.script.append('package_extract_file("system/bin/verify_cache_partition_size.sh", "/tmp/verify_cache_partition_size.sh");')
+    self.script.append('set_perm(0, 0, 0777, "/tmp/verify_cache_partition_size.sh");')
+    self.script.append('run_program("/tmp/verify_cache_partition_size.sh");')
+
   def ShowProgress(self, frac, dur):
     """Update the progress bar, advancing it over 'frac' over the next
     'dur' seconds.  'dur' may be zero to advance it via SetProgress
@@ -119,8 +130,16 @@ class EdifyGenerator(object):
 
   def PatchCheck(self, filename, *sha1):
     """Check that the given file (or MTD reference) has one of the
-    given *sha1 hashes."""
+    given *sha1 hashes, checking the version saved in cache if the
+    file does not match."""
     self.script.append('assert(apply_patch_check("%s"' % (filename,) +
+                       "".join([', "%s"' % (i,) for i in sha1]) +
+                       '));')
+
+  def FileCheck(self, filename, *sha1):
+    """Check that the given file (or MTD reference) has one of the
+    given *sha1 hashes."""
+    self.script.append('assert(sha1_check(read_file("%s")' % (filename,) +
                        "".join([', "%s"' % (i,) for i in sha1]) +
                        '));')
 
@@ -129,12 +148,15 @@ class EdifyGenerator(object):
     available on /cache."""
     self.script.append("assert(apply_patch_space(%d));" % (amount,))
 
-  def Mount(self, kind, what, path):
-    """Mount the given 'what' at the given path.  'what' should be a
-    partition name if kind is "MTD", or a block device if kind is
-    "vfat".  No other values of 'kind' are supported."""
-    self.script.append('mount("%s", "%s", "%s");' % (kind, what, path))
-    self.mounts.add(path)
+  def Mount(self, mount_point):
+    """Mount the partition with the given mount_point."""
+    fstab = self.info.get("fstab", None)
+    if fstab:
+      p = fstab[mount_point]
+      self.script.append('mount("%s", "%s", "%s", "%s");' %
+                         (p.fs_type, common.PARTITION_TYPES[p.fs_type],
+                          p.device, p.mount_point))
+      self.mounts.add(p.mount_point)
 
   def UnpackPackageDir(self, src, dst):
     """Unpack a given directory from the OTA package into the given
@@ -153,8 +175,14 @@ class EdifyGenerator(object):
     self.script.append('ui_print("%s");' % (message,))
 
   def FormatPartition(self, partition):
-    """Format the given MTD partition."""
-    self.script.append('format("MTD", "%s");' % (partition,))
+    """Format the given partition, specified by its mount point (eg,
+    "/system")."""
+
+    fstab = self.info.get("fstab", None)
+    if fstab:
+      p = fstab[partition]
+      self.script.append('format("%s", "%s", "%s");' %
+                         (p.fs_type, common.PARTITION_TYPES[p.fs_type], p.device))
 
   def DeleteFiles(self, file_list):
     """Delete all files in file_list."""
@@ -171,7 +199,7 @@ class EdifyGenerator(object):
     cmd = ['apply_patch("%s",\0"%s",\0%s,\0%d'
            % (srcfile, tgtfile, tgtsha1, tgtsize)]
     for i in range(0, len(patchpairs), 2):
-      cmd.append(',\0"%s:%s"' % patchpairs[i:i+2])
+      cmd.append(',\0%s, package_extract_file("%s")' % patchpairs[i:i+2])
     cmd.append(');')
     cmd = "".join(cmd)
     self.script.append(self._WordWrap(cmd))
@@ -188,13 +216,50 @@ class EdifyGenerator(object):
       self.script.append(
           'write_firmware_image("PACKAGE:%s", "%s");' % (fn, kind))
 
-  def WriteRawImage(self, partition, fn):
-    """Write the given package file into the given MTD partition."""
-    self.script.append(
-        ('assert(package_extract_file("%(fn)s", "/tmp/%(partition)s.img"),\n'
-         '       write_raw_image("/tmp/%(partition)s.img", "%(partition)s"),\n'
-         '       delete("/tmp/%(partition)s.img"));')
-        % {'partition': partition, 'fn': fn})
+  def WriteRawImage(self, mount_point, fn):
+    """Write the given package file into the partition for the given
+    mount point."""
+
+    fstab = self.info["fstab"]
+    if fstab:
+      p = fstab[mount_point]
+      partition_type = common.PARTITION_TYPES[p.fs_type]
+      args = {'device': p.device, 'fn': fn}
+      if partition_type == "MTD":
+        self.script.append(
+            ('assert(package_extract_file("%(fn)s", "/tmp/%(device)s.img"),\n'
+             '       write_raw_image("/tmp/%(device)s.img", "%(device)s"),\n'
+             '       delete("/tmp/%(device)s.img"));') % args)
+      elif partition_type == "EMMC":
+        self.script.append(
+            'package_extract_file("%(fn)s", "%(device)s");' % args)
+      elif partition_type == "BML":
+	        self.script.append(
+            ('assert(package_extract_file("%(fn)s", "/tmp/%(device)s.img"),\n'
+             '       write_raw_image("/tmp/%(device)s.img", "%(device)s"),\n'
+             '       delete("/tmp/%(device)s.img"));') % args)
+      else:
+        raise ValueError("don't know how to write \"%s\" partitions" % (p.fs_type,))
+
+    else:
+      # backward compatibility with older target-files that lack recovery.fstab
+      if self.info["partition_type"] == "MTD":
+        partition_type, partition = common.GetTypeAndDevice(mount_point, self.info)
+        self.script.append(
+            ('assert(package_extract_file("%(fn)s", "/tmp/%(partition)s.img"),\n'
+             '       write_raw_image("/tmp/%(partition)s.img", "%(partition)s"),\n'
+             '       delete("/tmp/%(partition)s.img"));')
+            % {'partition': partition, 'fn': fn})
+      elif self.info["partition_type"] == "EMMC":
+        partition_type, partition = common.GetTypeAndDevice(mount_point, self.info)
+        self.script.append(
+            ('package_extract_file("%(fn)s", "%(dir)s%(partition)s");')
+            % {'partition': partition, 'fn': fn,
+               'dir': self.info.get("partition_path", ""),
+               })
+      else:
+        raise ValueError("don't know how to write \"%s\" partitions" %
+                         (self.info["partition_type"],))
 
   def SetPermissions(self, fn, uid, gid, mode):
     """Set file ownership and permissions."""
@@ -220,14 +285,18 @@ class EdifyGenerator(object):
     """Append text verbatim to the output script."""
     self.script.append(extra)
 
+  def UnmountAll(self):
+    for p in sorted(self.mounts):
+      self.script.append('unmount("%s");' % (p,))
+    self.mounts = set()
+
   def AddToZip(self, input_zip, output_zip, input_path=None):
     """Write the accumulated script to the output_zip file.  input_zip
     is used as the source for the 'updater' binary needed to run
     script.  If input_path is not None, it will be used as a local
     path for the binary instead of input_zip."""
 
-    for p in sorted(self.mounts):
-      self.script.append('unmount("%s");' % (p,))
+    self.UnmountAll()
 
     common.ZipWriteStr(output_zip, "META-INF/com/google/android/updater-script",
                        "\n".join(self.script) + "\n")

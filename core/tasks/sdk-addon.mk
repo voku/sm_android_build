@@ -27,10 +27,23 @@ staging := $(intermediates)/$(addon_dir_leaf)
 sdk_addon_deps :=
 files_to_copy :=
 
+define stub-addon-jar-file
+$(subst .jar,_stub-addon.jar,$(1))
+endef
+
+define stub-addon-jar
+$(call stub-addon-jar-file,$(1)): $(1) | mkstubs
+	$(info Stubbing addon jar using $(PRODUCT_SDK_ADDON_STUB_DEFS))
+	$(hide) java -jar $(call module-installed-files,mkstubs) $(if $(hide),,--v) \
+		"$$<" "$$@" @$(PRODUCT_SDK_ADDON_STUB_DEFS)
+endef
+
 # Files that are built and then copied into the sdk-addon
 ifneq ($(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SDK_ADDON_COPY_MODULES)),)
 $(foreach cf,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SDK_ADDON_COPY_MODULES), \
   $(eval _src := $(call module-stubs-files,$(call word-colon,1,$(cf)))) \
+  $(eval $(call stub-addon-jar,$(_src))) \
+  $(eval _src := $(call stub-addon-jar-file,$(_src))) \
   $(if $(_src),,$(eval $(error Unknown or unlinkable module: $(call word-colon,1,$(cf)). Requested by $(INTERNAL_PRODUCT)))) \
   $(eval _dest := $(call word-colon,2,$(cf))) \
   $(eval files_to_copy += $(_src):$(_dest)) \
@@ -42,10 +55,11 @@ files_to_copy += $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SDK_ADDON_COPY_FILES)
 
 # All SDK add-ons have these files
 files_to_copy += \
-        $(BUILT_SYSTEMIMAGE):images/system.img \
-        $(BUILT_USERDATAIMAGE_TARGET):images/userdata.img \
-        $(BUILT_RAMDISK_TARGET):images/ramdisk.img \
-        $(target_notice_file_txt):images/NOTICE.txt
+        $(BUILT_SYSTEMIMAGE):images/$(TARGET_CPU_ABI)/system.img \
+        $(BUILT_USERDATAIMAGE_TARGET):images/$(TARGET_CPU_ABI)/userdata.img \
+        $(BUILT_RAMDISK_TARGET):images/$(TARGET_CPU_ABI)/ramdisk.img \
+        $(PRODUCT_OUT)/system/build.prop:images/$(TARGET_CPU_ABI)/build.prop \
+        $(target_notice_file_txt):images/$(TARGET_CPU_ABI)/NOTICE.txt
 
 # Generate rules to copy the requested files
 $(foreach cf,$(files_to_copy), \
@@ -80,6 +94,10 @@ $(full_target): $(sdk_addon_deps) | $(ACP)
 
 .PHONY: sdk_addon
 sdk_addon: $(full_target)
+
+# Keep the name of the addon final zip around for sdk_repo.
+# This is used by development/build/tools/sdk_repo.mk.
+ADDON_SDK_ZIP := $(full_target)
 
 $(call dist-for-goals, sdk_addon, $(full_target))
 

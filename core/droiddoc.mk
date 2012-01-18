@@ -57,6 +57,13 @@ endif
 $(full_target): PRIVATE_CLASSPATH:=$(LOCAL_CLASSPATH)
 full_java_lib_deps :=
 
+$(full_target): PRIVATE_BOOTCLASSPATH :=
+ifeq ($(BUILD_OS),linux)
+# You have to set bootclasspath for javadoc manually on linux since Java 6.
+host_jdk_rt_jar := $(dir $(HOST_JDK_TOOLS_JAR))../jre/lib/rt.jar
+$(full_target): PRIVATE_BOOTCLASSPATH := $(host_jdk_rt_jar)
+endif
+
 ifneq ($(LOCAL_IS_HOST_MODULE),true)
 
 ifeq ($(LOCAL_JAVA_LIBRARIES),)
@@ -137,7 +144,7 @@ $(full_target): PRIVATE_IN_CUSTOM_ASSET_DIR := $(LOCAL_DROIDDOC_CUSTOM_TEMPLATE_
 $(full_target): PRIVATE_OUT_ASSET_DIR := $(out_dir)/$(LOCAL_DROIDDOC_ASSET_DIR)
 $(full_target): PRIVATE_OUT_CUSTOM_ASSET_DIR := $(out_dir)/$(LOCAL_DROIDDOC_CUSTOM_ASSET_DIR)
 ifneq ($(strip $(LOCAL_DROIDDOC_HTML_DIR)),)
-$(full_target): PRIVATE_DROIDDOC_HTML_DIR := -htmldir $(LOCAL_PATH)/$(LOCAL_DROIDDOC_HTML_DIR)
+$(full_target): PRIVATE_DROIDDOC_HTML_DIR := $(foreach dir,$(LOCAL_DROIDDOC_HTML_DIR),-htmldir $(dir))
 else
 $(full_target): PRIVATE_DROIDDOC_HTML_DIR := 
 endif
@@ -145,9 +152,11 @@ endif
 # TODO: not clear if this is used any more
 $(full_target): PRIVATE_LOCAL_PATH := $(LOCAL_PATH)
 
-html_dir_files := $(shell find $(LOCAL_PATH)/$(LOCAL_DROIDDOC_HTML_DIR) -type f)
+ifneq ($(LOCAL_DROIDDOC_HTML_DIR),)
+html_dir_files := $(shell find $(LOCAL_DROIDDOC_HTML_DIR) -type f)
+endif
 
-$(full_target): $(full_src_files) $(droiddoc_templates) $(droiddoc) $(html_dir_files) $(full_java_lib_deps)
+$(full_target): $(full_src_files) $(droiddoc_templates) $(droiddoc) $(html_dir_files) $(full_java_lib_deps) $(LOCAL_ADDITIONAL_DEPENDENCIES)
 	@echo Docs droiddoc: $(PRIVATE_OUT_DIR)
 	$(hide) mkdir -p $(dir $(full_target))
 	$(call prepare-doc-source-list,$(PRIVATE_SRC_LIST_FILE),$(PRIVATE_JAVA_FILES), \
@@ -165,6 +174,7 @@ $(full_target): $(full_src_files) $(droiddoc_templates) $(droiddoc) $(html_dir_f
                 -templatedir $(PRIVATE_CUSTOM_TEMPLATE_DIR) \
                 -templatedir $(PRIVATE_TEMPLATE_DIR) \
                 $(PRIVATE_DROIDDOC_HTML_DIR) \
+                $(addprefix -bootclasspath ,$(PRIVATE_BOOTCLASSPATH)) \
                 $(addprefix -classpath ,$(PRIVATE_CLASSPATH)) \
                 -sourcepath $(PRIVATE_SOURCE_PATH)$(addprefix :,$(PRIVATE_CLASSPATH)) \
                 -d $(PRIVATE_OUT_DIR) \

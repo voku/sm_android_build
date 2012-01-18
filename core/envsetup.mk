@@ -16,7 +16,7 @@ include $(BUILD_SYSTEM)/version_defaults.mk
 # people who haven't re-run those will have to do so before they
 # can build.  Make sure to also update the corresponding value in
 # buildspec.mk.default and envsetup.sh.
-CORRECT_BUILD_ENV_SEQUENCE_NUMBER := 9
+CORRECT_BUILD_ENV_SEQUENCE_NUMBER := 10
 
 # ---------------------------------------------------------------
 # The product defaults to generic on hardware and sim on sim
@@ -26,7 +26,7 @@ ifeq ($(TARGET_PRODUCT),)
 ifeq ($(TARGET_SIMULATOR),true)
 TARGET_PRODUCT := sim
 else
-TARGET_PRODUCT := generic
+TARGET_PRODUCT := full
 endif
 endif
 
@@ -68,8 +68,16 @@ endif
 ifneq (,$(findstring CYGWIN,$(UNAME)))
 	HOST_OS := windows
 endif
+
+# BUILD_OS is the real host doing the build.
+BUILD_OS := $(HOST_OS)
+
+# Under Linux, if USE_MINGW is set, we change HOST_OS to Windows to build the
+# Windows SDK. Only a subset of tools and SDK will manage to build properly.
+ifeq ($(HOST_OS),linux)
 ifneq ($(USE_MINGW),)
 	HOST_OS := windows
+endif
 endif
 
 ifeq ($(HOST_OS),)
@@ -85,6 +93,8 @@ endif
 ifneq (,$(findstring Power,$(UNAME)))
 	HOST_ARCH := ppc
 endif
+
+BUILD_ARCH := $(HOST_ARCH)
 
 ifeq ($(HOST_ARCH),)
 $(error Unable to determine HOST_ARCH from uname -sm: $(UNAME)!)
@@ -107,6 +117,17 @@ ifeq ($(HOST_OS),windows)
   HOST_PREBUILT_TAG := windows
 else
   HOST_PREBUILT_TAG := $(HOST_OS)-$(HOST_ARCH)
+endif
+
+# Default to building dalvikvm on hosts that support it...
+ifeq ($(HOST_OS),linux)
+# ... but not if we're building the sim...
+ifneq ($(TARGET_SIMULATOR),true)
+# ... or if the if the option is already set
+ifeq ($(WITH_HOST_DALVIK),)
+	WITH_HOST_DALVIK := true
+endif
+endif
 endif
 
 
@@ -137,14 +158,6 @@ ifneq ($(TARGET_BUILD_TYPE),debug)
 TARGET_BUILD_TYPE := release
 endif
 
-# This is the standard way to name a directory containing prebuilt target
-# objects. E.g., prebuilt/$(TARGET_PREBUILT_TAG)/libc.so
-ifeq ($(TARGET_SIMULATOR),true)
-  TARGET_PREBUILT_TAG := $(TARGET_OS)-$(TARGET_ARCH)
-else
-  TARGET_PREBUILT_TAG := android-$(TARGET_ARCH)
-endif
-
 # ---------------------------------------------------------------
 # figure out the output directories
 
@@ -168,6 +181,8 @@ HOST_OUT_release := $(HOST_OUT_ROOT_release)/$(HOST_OS)-$(HOST_ARCH)
 HOST_OUT_debug := $(HOST_OUT_ROOT_debug)/$(HOST_OS)-$(HOST_ARCH)
 HOST_OUT := $(HOST_OUT_$(HOST_BUILD_TYPE))
 
+BUILD_OUT := $(OUT_DIR)/host/$(BUILD_OS)-$(BUILD_ARCH)
+
 ifeq ($(TARGET_SIMULATOR),true)
   # Any arch- or os-specific parts of the simulator (everything
   # under product/) are actually host-dependent.
@@ -184,6 +199,8 @@ HOST_COMMON_OUT_ROOT := $(HOST_OUT_ROOT)/common
 PRODUCT_OUT := $(TARGET_PRODUCT_OUT_ROOT)/$(TARGET_DEVICE)
 
 OUT_DOCS := $(TARGET_COMMON_OUT_ROOT)/docs
+
+BUILD_OUT_EXECUTABLES:= $(BUILD_OUT)/bin
 
 HOST_OUT_EXECUTABLES:= $(HOST_OUT)/bin
 HOST_OUT_SHARED_LIBRARIES:= $(HOST_OUT)/lib
@@ -249,7 +266,7 @@ TARGET_INSTALLER_DATA_OUT := $(TARGET_INSTALLER_OUT)/data
 TARGET_INSTALLER_ROOT_OUT := $(TARGET_INSTALLER_OUT)/root
 TARGET_INSTALLER_SYSTEM_OUT := $(TARGET_INSTALLER_OUT)/root/system
 
-COMMON_MODULE_CLASSES := JAVA_LIBRARIES NOTICE_FILES
+COMMON_MODULE_CLASSES := TARGET-NOTICE_FILES HOST-NOTICE_FILES HOST-JAVA_LIBRARIES
 
 ifeq (,$(strip $(DIST_DIR)))
   DIST_DIR := $(OUT_DIR)/dist
@@ -257,81 +274,4 @@ endif
 
 ifeq ($(PRINT_BUILD_CONFIG),)
 PRINT_BUILD_CONFIG := true
-endif
-
-# ---------------------------------------------------------------
-# the setpath shell function in envsetup.sh uses this to figure out
-# what to add to the path given the config we have chosen.
-ifeq ($(CALLED_FROM_SETUP),true)
-
-ABP:=$(PWD)/$(HOST_OUT_EXECUTABLES)
-
-ifeq ($(TARGET_SIMULATOR),true)
-	ABP:=$(ABP):$(TARGET_OUT_EXECUTABLES)
-else
-	# this should be copied to HOST_OUT_EXECUTABLES instead
-	ABP:=$(ABP):$(PWD)/prebuilt/$(HOST_PREBUILT_TAG)/toolchain/arm-eabi-4.4.0/bin
-endif
-ANDROID_BUILD_PATHS := $(ABP)
-ANDROID_PREBUILTS := prebuilt/$(HOST_PREBUILT_TAG)
-
-# The "dumpvar" stuff lets you say something like
-#
-#     CALLED_FROM_SETUP=true \
-#       make -f config/envsetup.make dumpvar-TARGET_OUT
-# or
-#     CALLED_FROM_SETUP=true \
-#       make -f config/envsetup.make dumpvar-abs-HOST_OUT_EXECUTABLES
-#
-# The plain (non-abs) version just dumps the value of the named variable.
-# The "abs" version will treat the variable as a path, and dumps an
-# absolute path to it.
-#
-dumpvar_goals := \
-	$(strip $(patsubst dumpvar-%,%,$(filter dumpvar-%,$(MAKECMDGOALS))))
-ifdef dumpvar_goals
-
-  ifneq ($(words $(dumpvar_goals)),1)
-    $(error Only one "dumpvar-" goal allowed. Saw "$(MAKECMDGOALS)")
-  endif
-
-  # If the goal is of the form "dumpvar-abs-VARNAME", then
-  # treat VARNAME as a path and return the absolute path to it.
-  absolute_dumpvar := $(strip $(filter abs-%,$(dumpvar_goals)))
-  ifdef absolute_dumpvar
-    dumpvar_goals := $(patsubst abs-%,%,$(dumpvar_goals))
-    DUMPVAR_VALUE := $(PWD)/$($(dumpvar_goals))
-    dumpvar_target := dumpvar-abs-$(dumpvar_goals)
-  else
-    DUMPVAR_VALUE := $($(dumpvar_goals))
-    dumpvar_target := dumpvar-$(dumpvar_goals)
-  endif
-
-.PHONY: $(dumpvar_target)
-$(dumpvar_target):
-	@echo $(DUMPVAR_VALUE)
-
-endif # dumpvar_goals
-
-ifneq ($(dumpvar_goals),report_config)
-PRINT_BUILD_CONFIG:=
-endif
-
-endif # CALLED_FROM_SETUP
-
-
-ifneq ($(PRINT_BUILD_CONFIG),)
-$(info ============================================)
-$(info   PLATFORM_VERSION_CODENAME=$(PLATFORM_VERSION_CODENAME))
-$(info   PLATFORM_VERSION=$(PLATFORM_VERSION))
-$(info   TARGET_PRODUCT=$(TARGET_PRODUCT))
-$(info   TARGET_BUILD_VARIANT=$(TARGET_BUILD_VARIANT))
-$(info   TARGET_SIMULATOR=$(TARGET_SIMULATOR))
-$(info   TARGET_BUILD_TYPE=$(TARGET_BUILD_TYPE))
-$(info   TARGET_ARCH=$(TARGET_ARCH))
-$(info   HOST_ARCH=$(HOST_ARCH))
-$(info   HOST_OS=$(HOST_OS))
-$(info   HOST_BUILD_TYPE=$(HOST_BUILD_TYPE))
-$(info   BUILD_ID=$(BUILD_ID))
-$(info ============================================)
 endif

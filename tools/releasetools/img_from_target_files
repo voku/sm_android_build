@@ -27,8 +27,8 @@ Usage:  img_from_target_files [flags] input_target_files output_image_zip
 
 import sys
 
-if sys.hexversion < 0x02040000:
-  print >> sys.stderr, "Python 2.4 or newer is required."
+if sys.hexversion < 0x02050000:
+  print >> sys.stderr, "Python 2.5 or newer is required."
   sys.exit(1)
 
 import errno
@@ -47,7 +47,6 @@ import common
 
 OPTIONS = common.OPTIONS
 
-
 def AddUserdata(output_zip):
   """Create an empty userdata image and store it in output_zip."""
 
@@ -61,11 +60,26 @@ def AddUserdata(output_zip):
   os.mkdir(user_dir)
   img = tempfile.NamedTemporaryFile()
 
-  p = common.Run(["mkyaffs2image", "-f", user_dir, img.name])
-  p.communicate()
-  assert p.returncode == 0, "mkyaffs2image of userdata.img image failed"
+  build_command = []
+  if OPTIONS.info_dict["fstab"]["/data"].fs_type.startswith("ext"):
+    build_command = ["mkuserimg.sh",
+                     user_dir, img.name,
+                     OPTIONS.info_dict["fstab"]["/data"].fs_type, "data"]
+    if "userdata_size" in OPTIONS.info_dict:
+      build_command.append(str(OPTIONS.info_dict["userdata_size"]))
+  else:
+    build_command = ["mkyaffs2image", "-f"]
+    extra = OPTIONS.info_dict.get("mkyaffs2_extra_flags", None)
+    if extra:
+      build_command.extend(extra.split())
+    build_command.append(user_dir)
+    build_command.append(img.name)
 
-  common.CheckSize(img.name, "userdata.img")
+  p = common.Run(build_command)
+  p.communicate()
+  assert p.returncode == 0, "build userdata.img image failed"
+
+  common.CheckSize(img.name, "userdata.img", OPTIONS.info_dict)
   output_zip.write(img.name, "userdata.img")
   img.close()
   os.rmdir(user_dir)
@@ -94,16 +108,30 @@ def AddSystem(output_zip):
     if (e.errno == errno.EEXIST):
       pass
 
-  p = common.Run(["mkyaffs2image", "-f",
-                  os.path.join(OPTIONS.input_tmp, "system"), img.name])
+  build_command = []
+  if OPTIONS.info_dict["fstab"]["/system"].fs_type.startswith("ext"):
+    build_command = ["mkuserimg.sh",
+                     os.path.join(OPTIONS.input_tmp, "system"), img.name,
+                     OPTIONS.info_dict["fstab"]["/system"].fs_type, "system"]
+    if "system_size" in OPTIONS.info_dict:
+      build_command.append(str(OPTIONS.info_dict["system_size"]))
+  else:
+    build_command = ["mkyaffs2image", "-f"]
+    extra = OPTIONS.info_dict.get("mkyaffs2_extra_flags", None)
+    if extra:
+      build_command.extend(extra.split())
+    build_command.append(os.path.join(OPTIONS.input_tmp, "system"))
+    build_command.append(img.name)
+
+  p = common.Run(build_command)
   p.communicate()
-  assert p.returncode == 0, "mkyaffs2image of system.img image failed"
+  assert p.returncode == 0, "build system.img image failed"
 
   img.seek(os.SEEK_SET, 0)
   data = img.read()
   img.close()
 
-  common.CheckSize(data, "system.img")
+  common.CheckSize(data, "system.img", OPTIONS.info_dict)
   common.ZipWriteStr(output_zip, "system.img", data)
 
 
@@ -133,17 +161,13 @@ def main(argv):
 
   OPTIONS.input_tmp = common.UnzipTemp(args[0])
 
-  common.LoadMaxSizes()
-  if not OPTIONS.max_image_size:
-    print
-    print "  WARNING:  Failed to load max image sizes; will not enforce"
-    print "  image size limits."
-    print
+  input_zip = zipfile.ZipFile(args[0], "r")
+  OPTIONS.info_dict = common.LoadInfoDict(input_zip)
 
   output_zip = zipfile.ZipFile(args[1], "w", compression=zipfile.ZIP_DEFLATED)
 
-  common.AddBoot(output_zip)
-  common.AddRecovery(output_zip)
+  common.AddBoot(output_zip, OPTIONS.info_dict)
+  common.AddRecovery(output_zip, OPTIONS.info_dict)
   AddSystem(output_zip)
   AddUserdata(output_zip)
   CopyInfo(output_zip)
@@ -157,6 +181,7 @@ def main(argv):
 
 if __name__ == '__main__':
   try:
+    common.CloseInheritedPipes()
     main(sys.argv[1:])
   except common.ExternalError, e:
     print

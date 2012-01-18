@@ -16,28 +16,40 @@
 INTERNAL_CLEAN_STEPS :=
 
 # Builds up a list of clean steps.  Creates a unique
-# id for each step by taking INTERNAL_CLEAN_BUILD_VERSION
+# id for each step by taking makefile path, INTERNAL_CLEAN_BUILD_VERSION
 # and appending an increasing number of '@' characters.
 #
 # $(1): shell command to run
+# $(2): indicate to not use makefile path as part of step id if not empty.
+#       $(2) should only be used in build/core/cleanspec.mk: just for compatibility.
 define _add-clean-step
   $(if $(strip $(INTERNAL_CLEAN_BUILD_VERSION)),, \
       $(error INTERNAL_CLEAN_BUILD_VERSION not set))
-  $(eval _acs_id := $(strip $(lastword $(INTERNAL_CLEAN_STEPS))))
-  $(if $(_acs_id),,$(eval _acs_id := $(INTERNAL_CLEAN_BUILD_VERSION)))
-  $(eval _acs_id := $(_acs_id)@)
+  $(eval _acs_makefile_prefix := $(lastword $(MAKEFILE_LIST)))
+  $(eval _acs_makefile_prefix := $(subst /,_,$(_acs_makefile_prefix)))
+  $(eval _acs_makefile_prefix := $(subst .,-,$(_acs_makefile_prefix)))
+  $(eval _acs_makefile_prefix := $(_acs_makefile_prefix)_acs)
+  $(if $($(_acs_makefile_prefix)),,\
+      $(eval $(_acs_makefile_prefix) := $(INTERNAL_CLEAN_BUILD_VERSION)))
+  $(eval $(_acs_makefile_prefix) := $($(_acs_makefile_prefix))@)
+  $(if $(strip $(2)),$(eval _acs_id := $($(_acs_makefile_prefix))),\
+      $(eval _acs_id := $(_acs_makefile_prefix)$($(_acs_makefile_prefix))))
   $(eval INTERNAL_CLEAN_STEPS += $(_acs_id))
   $(eval INTERNAL_CLEAN_STEP.$(_acs_id) := $(1))
   $(eval _acs_id :=)
+  $(eval _acs_makefile_prefix :=)
 endef
 define add-clean-step
-$(if $(call _add-clean-step,$(1)),)
+$(eval # for build/core/cleanspec.mk, dont use makefile path as part of step id) \
+$(if $(filter %/cleanspec.mk,$(lastword $(MAKEFILE_LIST))),\
+    $(eval $(call _add-clean-step,$(1),true)),\
+    $(eval $(call _add-clean-step,$(1))))
 endef
 
 # Defines INTERNAL_CLEAN_BUILD_VERSION and the individual clean steps.
 # cleanspec.mk is outside of the core directory so that more people
 # can have permission to touch it.
-include build/cleanspec.mk
+include $(BUILD_SYSTEM)/cleanspec.mk
 INTERNAL_CLEAN_BUILD_VERSION := $(strip $(INTERNAL_CLEAN_BUILD_VERSION))
 
 # If the clean_steps.mk file is missing (usually after a clean build)
@@ -148,8 +160,6 @@ current_build_config :=
 
 # The files/dirs to delete during an installclean.  This includes the
 # non-common APPS directory, which may contain the wrong resources.
-# Use "./" in front of the paths to avoid accidentally deleting random
-# parts of the filesystem if any of the *_OUT vars resolve to blank.
 #
 # Deletes all of the files that change between different build types,
 # like "make user" vs. "make sdk".  This lets you work with different
@@ -162,28 +172,34 @@ current_build_config :=
 #     $ make -j8 sdk
 #
 installclean_files := \
-	./$(HOST_OUT)/obj/NOTICE_FILES \
-	./$(HOST_OUT)/sdk \
-	./$(PRODUCT_OUT)/*.img \
-	./$(PRODUCT_OUT)/*.txt \
-	./$(PRODUCT_OUT)/*.xlb \
-	./$(PRODUCT_OUT)/*.zip \
-	./$(PRODUCT_OUT)/data \
-	./$(PRODUCT_OUT)/obj/lib \
-	./$(PRODUCT_OUT)/obj/APPS \
-	./$(PRODUCT_OUT)/obj/NOTICE_FILES \
-	./$(PRODUCT_OUT)/obj/PACKAGING \
-	./$(PRODUCT_OUT)/recovery \
-	./$(PRODUCT_OUT)/root \
-	./$(PRODUCT_OUT)/symbols/system/lib \
-	./$(PRODUCT_OUT)/system
+	$(HOST_OUT)/obj/NOTICE_FILES \
+	$(HOST_OUT)/sdk \
+	$(PRODUCT_OUT)/*.img \
+	$(PRODUCT_OUT)/*.txt \
+	$(PRODUCT_OUT)/*.xlb \
+	$(PRODUCT_OUT)/*.zip \
+	$(PRODUCT_OUT)/data \
+	$(PRODUCT_OUT)/obj/APPS \
+	$(PRODUCT_OUT)/obj/NOTICE_FILES \
+	$(PRODUCT_OUT)/obj/PACKAGING \
+	$(PRODUCT_OUT)/recovery \
+	$(PRODUCT_OUT)/root \
+	$(PRODUCT_OUT)/system \
+	$(PRODUCT_OUT)/dex_bootjars \
+	$(PRODUCT_OUT)/obj/JAVA_LIBRARIES
 
 # The files/dirs to delete during a dataclean, which removes any files
 # in the staging and emulator data partitions.
 dataclean_files := \
-	./$(PRODUCT_OUT)/data/* \
-	./$(PRODUCT_OUT)/data-qemu/* \
-	./$(PRODUCT_OUT)/userdata-qemu.img
+	$(PRODUCT_OUT)/data/* \
+	$(PRODUCT_OUT)/data-qemu/* \
+	$(PRODUCT_OUT)/userdata-qemu.img
+
+# make sure *_OUT is set so that we won't result in deleting random parts
+# of the filesystem.
+ifneq (2,$(words $(HOST_OUT) $(PRODUCT_OUT)))
+  $(error both HOST_OUT and PRODUCT_OUT should be set at this point.)
+endif
 
 # Define the rules for commandline invocation.
 .PHONY: dataclean
@@ -200,6 +216,7 @@ installclean: dataclean
 
 ifeq "$(force_installclean)" "true"
   $(info *** Forcing "make installclean"...)
+  $(info *** rm -rf $(dataclean_files) $(installclean_files))
   $(shell rm -rf $(dataclean_files) $(installclean_files))
   $(info *** Done with the cleaning, now starting the real build.)
 endif

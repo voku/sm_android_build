@@ -58,6 +58,18 @@ public class DroidDoc
     public static Map<Character,String> escapeChars = new HashMap<Character,String>();
     public static String title = "";
     public static SinceTagger sinceTagger = new SinceTagger();
+    public static HashSet<String> knownTags = new HashSet<String>();
+
+    private static boolean parseComments = false;
+    private static boolean generateDocs = true;
+    
+    /**
+    * Returns true if we should parse javadoc comments,
+    * reporting errors in the process.
+    */
+    public static boolean parseComments() {
+        return generateDocs || parseComments;
+    }
 
     public static boolean checkLevel(int level)
     {
@@ -96,11 +108,11 @@ public class DroidDoc
         String stubsDir = null;
         //Create the dependency graph for the stubs directory
         boolean apiXML = false;
-        boolean noDocs = false;
         boolean offlineMode = false;
         String apiFile = null;
         String debugStubsFile = "";
         HashSet<String> stubPackages = null;
+        ArrayList<String> knownTagsFiles = new ArrayList<String>();
 
         root = r;
 
@@ -115,6 +127,9 @@ public class DroidDoc
             else if (a[0].equals("-hdf")) {
                 mHDFData.add(new String[] {a[1], a[2]});
             }
+            else if (a[0].equals("-knowntags")) {
+                knownTagsFiles.add(a[1]);
+            }
             else if (a[0].equals("-toroot")) {
                 ClearPage.toroot = a[1];
             }
@@ -122,7 +137,7 @@ public class DroidDoc
                 sampleCodes.add(new SampleCode(a[1], a[2], a[3]));
             }
             else if (a[0].equals("-htmldir")) {
-                ClearPage.htmlDir = a[1];
+                ClearPage.htmlDirs.add(a[1]);
             }
             else if (a[0].equals("-title")) {
                 DroidDoc.title = a[1];
@@ -191,7 +206,10 @@ public class DroidDoc
                 apiFile = a[1];
             }
             else if (a[0].equals("-nodocs")) {
-                noDocs = true;
+                generateDocs = false;
+            }
+            else if (a[0].equals("-parsecomments")) {
+                parseComments = true;
             }
             else if (a[0].equals("-since")) {
                 sinceTagger.addVersion(a[1], a[2]);
@@ -199,6 +217,10 @@ public class DroidDoc
             else if (a[0].equals("-offlinemode")) {
                 offlineMode = true;
             }
+        }
+
+        if (!readKnownTagsFiles(knownTags, knownTagsFiles)) {
+            return false;
         }
 
         // read some prefs from the template
@@ -209,7 +231,7 @@ public class DroidDoc
         // Set up the data structures
         Converter.makeInfo(r);
 
-        if (!noDocs) {
+        if (generateDocs) {
             long startTime = System.nanoTime();
 
             // Apply @since tags from the XML file
@@ -224,7 +246,7 @@ public class DroidDoc
             }
 
             // HTML Pages
-            if (ClearPage.htmlDir != null) {
+            if (!ClearPage.htmlDirs.isEmpty()) {
                 writeHTMLPages();
             }
 
@@ -233,7 +255,7 @@ public class DroidDoc
 
             // Packages Pages
             writePackages(javadocDir
-                            + (ClearPage.htmlDir!=null
+                            + (!ClearPage.htmlDirs.isEmpty()
                                 ? "packages" + htmlExtension
                                 : "index" + htmlExtension));
 
@@ -303,6 +325,55 @@ public class DroidDoc
         return true;
     }
 
+    private static boolean readKnownTagsFiles(HashSet<String> knownTags,
+            ArrayList<String> knownTagsFiles) {
+        for (String fn: knownTagsFiles) {
+            BufferedReader in = null;
+            try {
+                in = new BufferedReader(new FileReader(fn));
+                int lineno = 0;
+                boolean fail = false;
+                while (true) {
+                    lineno++;
+                    String line = in.readLine();
+                    if (line == null) {
+                        break;
+                    }
+                    line = line.trim();
+                    if (line.length() == 0) {
+                        continue;
+                    } else if (line.charAt(0) == '#') {
+                        continue;
+                    }
+                    String[] words = line.split("\\s+", 2);
+                    if (words.length == 2) {
+                        if (words[1].charAt(0) != '#') {
+                            System.err.println(fn + ":" + lineno
+                                    + ": Only one tag allowed per line: " + line);
+                            fail = true;
+                            continue;
+                        }
+                    }
+                    knownTags.add(words[0]);
+                }
+                if (fail) {
+                    return false;
+                }
+            } catch (IOException ex) {
+                System.err.println("Error reading file: " + fn + " (" + ex.getMessage() + ")");
+                return false;
+            } finally {
+                if (in != null) {
+                    try {
+                        in.close();
+                    } catch (IOException e) {
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
     public static String escape(String s) {
         if (escapeChars.size() == 0) {
             return s;
@@ -357,6 +428,9 @@ public class DroidDoc
         }
         if (option.equals("-hdf")) {
             return 3;
+        }
+        if (option.equals("-knowntags")) {
+            return 2;
         }
         if (option.equals("-toroot")) {
             return 2;
@@ -419,6 +493,9 @@ public class DroidDoc
             return 2;
         }
         if (option.equals("-nodocs")) {
+            return 1;
+        }
+        if (option.equals("-parsecomments")) {
             return 1;
         }
         if (option.equals("-since")) {
@@ -575,11 +652,14 @@ public class DroidDoc
 
     public static void writeHTMLPages()
     {
-        File f = new File(ClearPage.htmlDir);
-        if (!f.isDirectory()) {
-            System.err.println("htmlDir not a directory: " + ClearPage.htmlDir);
+        for (String htmlDir : ClearPage.htmlDirs) {
+            File f = new File(htmlDir);
+            if (!f.isDirectory()) {
+                System.err.println("htmlDir not a directory: " + htmlDir);
+                continue;
+            }
+            writeDirectory(f, "");
         }
-        writeDirectory(f, "");
     }
 
     public static void writeLists()

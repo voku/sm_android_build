@@ -162,8 +162,9 @@ define _expand-inherited-values
           $(call uniq-word,$($(_eiv_tv)),$(INHERIT_TAG)$(i))) \
       $(eval ### "Expand the inherit tag") \
       $(eval $(_eiv_tv) := \
-          $(patsubst $(INHERIT_TAG)$(i),$($(1).$(i).$(v)), \
-              $($(_eiv_tv)))) \
+          $(strip \
+              $(patsubst $(INHERIT_TAG)$(i),$($(1).$(i).$(v)), \
+                  $($(_eiv_tv))))) \
       $(eval ### "Clear the child so DAGs don't create duplicate entries" ) \
       $(eval $(1).$(i).$(v) :=) \
       $(eval ### "If we just inherited ourselves, it's a cycle.") \
@@ -187,7 +188,10 @@ define _import-node
   $(eval _include_stack := $(2) $$(_include_stack))
   $(call clear-var-list, $(3))
   $(eval LOCAL_PATH := $(patsubst %/,%,$(dir $(2))))
+  $(eval MAKEFILE_LIST :=)
   $(eval include $(2))
+  $(eval _included := $(filter-out $(2),$(MAKEFILE_LIST)))
+  $(eval MAKEFILE_LIST :=)
   $(eval LOCAL_PATH :=)
   $(call copy-var-list, $(1).$(2), $(3))
   $(call clear-var-list, $(3))
@@ -201,6 +205,13 @@ define _import-node
   $(eval $(1).$(2).inherited :=)
   $(eval _include_stack := $(wordlist 2,9999,$$(_include_stack)))
 endef
+
+#
+# This will generate a warning for _included above
+#  $(if $(_included), \
+#      $(eval $(warning product spec file: $(2)))\
+#      $(foreach _inc,$(_included),$(eval $(warning $(space)$(space)$(space)includes: $(_inc)))),)
+#
 
 #
 # $(1): context prefix

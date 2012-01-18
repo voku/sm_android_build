@@ -55,8 +55,6 @@ public class Comment
             "@sample",
             "@include",
             "@serial",
-            "@com.intel.drl.spec_ref",
-            "@ar.org.fitc.spec_ref",
         };
 
     public Comment(String text, ContainerInfo base, SourcePositionInfo sp)
@@ -183,6 +181,9 @@ public class Comment
                     known = true;
                     break;
                 }
+            }
+            if (!known) {
+                known = DroidDoc.knownTags.contains(name);
             }
             if (!known) {
                 Errors.error(Errors.UNKNOWN_TAG, pos == null ? null : new SourcePositionInfo(pos),
@@ -334,8 +335,17 @@ public class Comment
     {
         isHidden();
         isDocOnly();
-        parseRegex(mText);
-        parseBriefTags();
+
+        // Don't bother parsing text if we aren't generating documentation.
+        if (DroidDoc.parseComments()) {
+            parseRegex(mText);
+            parseBriefTags();
+        } else {
+          // Forces methods to be recognized by findOverriddenMethods in MethodInfo.
+          mInlineTagsList.add(new TextTagInfo("Text", "Text", mText,
+                  SourcePositionInfo.add(mPosition, mText, 0)));
+        }
+
         mText = null;
         mInitialized = true;
 

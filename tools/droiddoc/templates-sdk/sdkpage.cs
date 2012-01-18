@@ -4,8 +4,8 @@
 <?cs if:sdk.redirect ?>
   <head>
     <title>Redirecting...</title>
-    <meta http-equiv="refresh" content="0;url=<?cs var:toroot ?>sdk/<?cs 
-      if:sdk.redirect.path ?><?cs var:sdk.redirect.path ?><?cs 
+    <meta http-equiv="refresh" content="0;url=<?cs var:toroot ?>sdk/<?cs
+      if:sdk.redirect.path ?><?cs var:sdk.redirect.path ?><?cs
       else ?>index.html<?cs /if ?>">
     <link href="<?cs var:toroot ?>assets/android-developer-docs.css" rel="stylesheet" type="text/css" />
   </head>
@@ -22,14 +22,23 @@
 
 <div class="g-unit">
   <div id="jd-content">
-    <p>Redirecting to 
-    <a href="<?cs var:toroot ?>sdk/<?cs 
-      if:sdk.redirect.path ?><?cs var:sdk.redirect.path ?><?cs 
-      else ?><?cs var:sdk.current ?>/index.html<?cs /if ?>">sdk/<?cs 
-      if:sdk.redirect.path ?><?cs var:sdk.redirect.path ?><?cs 
-      else ?><?cs var:sdk.current ?>/index.html<?cs /if ?>
+    <p>Redirecting to
+    <a href="<?cs var:toroot ?>sdk/<?cs
+      if:sdk.redirect.path ?><?cs var:sdk.redirect.path ?><?cs
+      else ?>index.html<?cs /if ?>"><?cs
+      if:sdk.redirect.path ?><?cs var:sdk.redirect.path ?><?cs
+      else ?>Download the SDK<?cs /if ?>
     </a> ...</p>
+
 <?cs else ?>
+<?cs # else, if NOT redirect ...
+#
+#
+# The following is for SDK/NDK pages
+#
+#
+?>
+
 <div class="g-unit" id="doc-content" >
   <div id="jd-header" class="guide-header" >
     <span class="crumb">&nbsp;</span>
@@ -37,13 +46,6 @@
   </div>
 
   <div id="jd-content">
-    <?cs 
-    if:ndk ?><?cs 
-    else ?><?cs 
-      if:android.whichdoc == "online" ?><p><em><?cs 
-      var:sdk.date ?></em></p><?cs 
-      /if ?><?cs
-    /if ?>
 
 <?cs if:sdk.not_latest_version ?>
   <div class="special">
@@ -52,23 +54,44 @@
   </div>
 <?cs /if ?>
 
-<?cs if:android.whichdoc != "online" && !android.preview ?>
 
-<!-- <p>The sections below provide an overview of how to install the SDK package. </p> -->
+<?cs if:ndk ?>
+<?cs #
+#
+#
+#
+#
+#
+#
+# the following is for the NDK
+#
+# (nested in if/else redirect)
+#
+#
+#
+#
+?>
 
-<?cs else ?>
-  <?cs if:ndk ?>
+<p>The Android NDK is a companion tool to the Android SDK that lets you build
+performance-critical portions of your apps in native code. It provides headers and
+libraries that allow you to build activities, handle user input, use hardware sensors,
+access application resources, and more, when programming in C or C++. If you write
+native code, your applications are still packaged into an .apk file and they still run
+inside of a virtual machine on the device. The fundamental Android application model
+does not change.</p>
 
-<p>The Android NDK is a companion tool to the Android SDK that lets Android
-application developers build performance-critical portions of their apps in
-native code. It is designed for use <em>only</em> in conjunction with the
-Android SDK, so if you have not already installed the latest Android SDK, please
-do so before downloading the NDK. Also, please read <a href="#overview">What is 
-the Android NDK?</a> to get an understanding of what the NDK offers and whether
-it will be useful to you.</p>
-
-<p>Select the download package that is appropriate for your development
-computer. </p>
+<p>Using native code does not result in an automatic performance increase, 
+but always increases application complexity. If you have not run into any limitations
+using the Android framework APIs, you probably do not need the NDK. Read <a 
+href="<?cs var:toroot ?>sdk/ndk/overview.html">What is the NDK?</a> for more information about what
+the NDK offers and whether it will be useful to you.
+</p>
+<p>
+The NDK is designed for use <em>only</em> in conjunction with the
+Android SDK. If you have not already installed and setup the <a
+href="http://developer.android.com/sdk/index.html">Android SDK</a>, please
+do so before downloading the NDK. 
+</p>
 
   <table class="download">
     <tr>
@@ -103,61 +126,31 @@ computer. </p>
   </tr>
   </table>
 
-  <?cs else ?><?cs if:android.whichdoc == "online" ?>
-
-  <?cs if:sdk.preview ?>
-  <p>Welcome developers! The next release of the Android platform will be
-  Android 1.6 and we are pleased to announce the availability of an early look
-  SDK to give you a head-start on developing applications for it. </p>
-
-  <p>The Android <?cs var:sdk.preview.version ?> platform includes a variety of
-  improvements and new features for users and developers. Additionally, the SDK
-  itself introduces several new capabilities that enable you to develop
-  applications more efficiently. See the <a href="features.html">Android <?cs
-  var:sdk.preview.version ?> Platform Highlights</a> document for a list of 
-  highlights.</p>
-<?cs /if ?> 
-<?cs # end if NDK ... the following is for the SDK ?>
-
-<?cs #  
-    <div class="toggle-content special">
-    <p>The Android SDK has changed! If you've worked with the Android SDK before, 
-    you will notice several important differences:</p>
-    
-    <div class="toggle-content-toggleme" style="display:none">
-    <ul style="padding-bottom:.0;">
-    <li style="margin-top:.5em">The SDK downloadable package includes <em>only</em>
-    the latest version of the Android SDK Tools.</li>
-    <li>Once you've installed the SDK, you now use the Android SDK and AVD Manager
-    to download all of the SDK components that you need, such as Android platforms,
-    SDK add-ons, tools, and documentation. </li>
-    <li>The new approach is modular &mdash; you can install only the components you
-    need and update any or all components without affecting other parts of your
-    development environment.</li>
-    <li>In short, once you've installed the new SDK, you will not need to download
-    an SDK package again. Instead, you will use the Android SDK and AVD Manager to
-    keep your development environment up-to-date. </li>
-    </ul>
-    <p style="margin-top:0">If you are currently using the Android 1.6 SDK, you
-    do not need to install the new SDK, because your existing SDK already 
-    includes the Android SDK and AVD Manager tool. To develop against Android 
-    2.0.1, for example, you can just download the Android 2.0.1 platform (and 
-    updated SDK Tools) into your existing SDK. Refer to <a 
-    href="adding-components.html">Adding SDK Components</a>.</p>
-    </div>
-    
-    <a href='#' class='toggle-content-button show' onclick="toggleContent(this,true);return false;">
-      <span>show more</span><span style='display:none'>show less</span>
-    </a>
-  </div>
+  <?cs else ?>
+<?cs # end if NDK ... 
+#
+#
+#
+#
+#
+#
+# the following is for the SDK
+#
+# (nested in if/else redirect and if/else NDK)
+#
+#
+#
+#
 ?>
-  <p>Welcome Developers! If you are new to the Android SDK, please read the <a
-href="#quickstart">Quick Start</a>, below, for an overview of how to install and
-set up the SDK. </p>
+  <?cs if:android.whichdoc == "online" ?>
 
-  <p>If you are already using the Android SDK and would like to update to the
-latest tools or platforms, please use the <em>Android SDK and AVD Manager</em>
-to get the components, rather than downloading a new SDK package.</p>
+  <p>Welcome Developers! If you are new to the Android SDK, please read the steps below, for an
+overview of how to set up the SDK. </p>
+
+  <p>If you're already using the Android SDK, you should
+update to the latest tools or platform using the <em>Android SDK and AVD Manager</em>, rather than
+downloading a new SDK starter package. See <a
+href="<?cs var:toroot ?>sdk/adding-components.html">Adding SDK Components</a>.</p>
 
   <table class="download">
     <tr>
@@ -167,17 +160,28 @@ to get the components, rather than downloading a new SDK package.</p>
       <th>MD5 Checksum</th>
   </tr>
   <tr>
-    <td>Windows</td>
+    <td rowspan="2">Windows</td>
     <td>
-  <a href="<?cs var:toroot ?>sdk/download.html?v=<?cs var:sdk.win_download ?>"><?cs var:sdk.win_download ?></a>
+  <a onclick="onDownload(this)" href="http://dl.google.com/android/<?cs var:sdk.win_download
+?>"><?cs var:sdk.win_download ?></a>
     </td>
     <td><?cs var:sdk.win_bytes ?> bytes</td>
     <td><?cs var:sdk.win_checksum ?></td>
   </tr>
+  <tr>
+    <!-- blank TD from Windows rowspan -->
+    <td>
+  <a onclick="onDownload(this)" href="http://dl.google.com/android/<?cs var:sdk.win_installer
+?>"><?cs var:sdk.win_installer ?></a> (Recommended)
+    </td>
+    <td><?cs var:sdk.win_installer_bytes ?> bytes</td>
+    <td><?cs var:sdk.win_installer_checksum ?></td>
+  </tr>
   <tr class="alt-color">
     <td>Mac OS X (intel)</td>
     <td>
-  <a href="<?cs var:toroot ?>sdk/download.html?v=<?cs var:sdk.mac_download ?>"><?cs var:sdk.mac_download ?></a>
+  <a onclick="onDownload(this)" href="http://dl.google.com/android/<?cs var:sdk.mac_download
+?>"><?cs var:sdk.mac_download ?></a>
     </td>
     <td><?cs var:sdk.mac_bytes ?> bytes</td>
     <td><?cs var:sdk.mac_checksum ?></td>
@@ -185,49 +189,41 @@ to get the components, rather than downloading a new SDK package.</p>
   <tr>
     <td>Linux (i386)</td>
     <td>
-  <a href="<?cs var:toroot ?>sdk/download.html?v=<?cs var:sdk.linux_download ?>"><?cs var:sdk.linux_download ?></a>
+  <a onclick="onDownload(this)" href="http://dl.google.com/android/<?cs var:sdk.linux_download
+?>"><?cs var:sdk.linux_download ?></a>
     </td>
     <td><?cs var:sdk.linux_bytes ?> bytes</td>
     <td><?cs var:sdk.linux_checksum ?></td>
   </tr>
-  <?cs if:adt.zip_download ?>
-  <tr class="alt-color">
-    <td>ADT Plugin for Eclipse <?cs var:adt.zip_version ?></td>
-    <td>
-  <a href="http://dl.google.com/android/<?cs var:adt.zip_download ?>"><?cs var:adt.zip_download ?></a>
-    </td>
-    <td><?cs var:adt.zip_bytes ?> bytes</td>
-    <td><?cs var:adt.zip_checksum ?></td>
-  </tr>
-  <?cs /if ?>
   </table>
 
-  <?cs /if ?>
- <?cs /if ?>
-<?cs /if ?> 
 
-<?cs if:android.whichdoc != "online" && sdk.preview ?>
-  <p>Welcome developers! The next release of the Android platform will be
-  Android 1.6 and we are pleased to announce the availability of an early look SDK
-  to give you a head-start on developing applications for it. </p>
+<div id="next-steps" style="display:none">
+  <p><b><em><span id="filename"></span></em> is now downloading. Follow the steps below to
+get started.</b></p>
+</div>
 
-  <p>The Android 1.6 platform includes a variety of improvements and new features
-  for users and developers. Additionally, the SDK itself introduces several new
-  capabilities that enable you to develop applications more efficiently.
-  See the <a href="http://developer.android.com/sdk/preview/features.html">
-  Android 1.6 Highlights</a> document for a list of highlights.</p>
-<?cs /if ?>
+<script type="text/javascript">
+function onDownload(link) {
+  $("#filename").text($(link).html());
+  $("#next-steps").show();
+}
+</script>
+  <?cs /if ?> <?cs # end if online ?>
 
-      <?cs call:tag_list(root.descr) ?>
+<?cs /if ?> <?cs # end if/else NDK ?>
 
-<?cs /if ?>
+<?cs /if ?> <?cs # end if/else redirect ?>
+
+<?cs call:tag_list(root.descr) ?>
+
 </div><!-- end jd-content -->
 
 <?cs if:!sdk.redirect ?>
-     <?cs include:"footer.cs" ?>
+<?cs include:"footer.cs" ?>
 <?cs /if ?>
 
-</div><!-- end doc-content -->
+</div><!-- end g-unit -->
 
 <?cs include:"trailer.cs" ?>
 

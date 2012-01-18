@@ -3,10 +3,20 @@
 # current configuration and platform, which
 # are not specific to what is being built.
 
+# Only use ANDROID_BUILD_SHELL to wrap around bash.
+# DO NOT use other shells such as zsh.
+ifdef ANDROID_BUILD_SHELL
+SHELL := $(ANDROID_BUILD_SHELL)
+else
 # Use bash, not whatever shell somebody has installed as /bin/sh
 # This is repeated from main.mk, since envsetup.sh runs this file
 # directly.
 SHELL := /bin/bash
+endif
+
+# Tell python not to spam the source tree with .pyc files.  This
+# only has an effect on python 2.6 and above.
+export PYTHONDONTWRITEBYTECODE := 1
 
 # Standard source directories.
 SRC_DOCS:= $(TOPDIR)docs
@@ -21,6 +31,7 @@ SRC_HEADERS := \
 	$(TOPDIR)dalvik/libnativehelper/include \
 	$(TOPDIR)frameworks/base/include \
 	$(TOPDIR)frameworks/base/opengl/include \
+	$(TOPDIR)frameworks/base/native/include \
 	$(TOPDIR)external/skia/include
 SRC_HOST_HEADERS:=$(TOPDIR)tools/include
 SRC_LIBRARIES:= $(TOPDIR)libs
@@ -131,6 +142,16 @@ include $(board_config_mk)
 TARGET_DEVICE_DIR := $(patsubst %/,%,$(dir $(board_config_mk)))
 board_config_mk :=
 
+# This is the standard way to name a directory containing prebuilt target
+# objects. E.g., prebuilt/$(TARGET_PREBUILT_TAG)/libc.so
+ifeq ($(TARGET_SIMULATOR),true)
+  TARGET_PREBUILT_TAG := $(TARGET_OS)-$(TARGET_ARCH)
+else
+  TARGET_PREBUILT_TAG := android-$(TARGET_ARCH)
+endif
+
+include $(BUILD_SYSTEM)/dumpvar.mk
+
 # Clean up/verify variables defined by the board config file.
 TARGET_BOOTLOADER_BOARD_NAME := $(strip $(TARGET_BOOTLOADER_BOARD_NAME))
 TARGET_CPU_ABI := $(strip $(TARGET_CPU_ABI))
@@ -185,24 +206,31 @@ LEX:= flex
 YACC:= bison -d
 DOXYGEN:= doxygen
 AAPT := $(HOST_OUT_EXECUTABLES)/aapt$(HOST_EXECUTABLE_SUFFIX)
-ACP := $(HOST_OUT_EXECUTABLES)/acp$(HOST_EXECUTABLE_SUFFIX)
-OVERRIDECHECK := $(HOST_OUT_JAVA_LIBRARIES)/overridecheck$(COMMON_JAVA_PACKAGE_SUFFIX)
 AIDL := $(HOST_OUT_EXECUTABLES)/aidl$(HOST_EXECUTABLE_SUFFIX)
 ICUDATA := $(HOST_OUT_EXECUTABLES)/icudata$(HOST_EXECUTABLE_SUFFIX)
 SIGNAPK_JAR := $(HOST_OUT_JAVA_LIBRARIES)/signapk$(COMMON_JAVA_PACKAGE_SUFFIX)
 MKBOOTFS := $(HOST_OUT_EXECUTABLES)/mkbootfs$(HOST_EXECUTABLE_SUFFIX)
 MINIGZIP := $(HOST_OUT_EXECUTABLES)/minigzip$(HOST_EXECUTABLE_SUFFIX)
 MKBOOTIMG := $(HOST_OUT_EXECUTABLES)/mkbootimg$(HOST_EXECUTABLE_SUFFIX)
+MKIMAGE :=  $(HOST_OUT_EXECUTABLES)/mkimage$(HOST_EXECUTABLE_SUFFIX)
 MKYAFFS2 := $(HOST_OUT_EXECUTABLES)/mkyaffs2image$(HOST_EXECUTABLE_SUFFIX)
 APICHECK := $(HOST_OUT_EXECUTABLES)/apicheck$(HOST_EXECUTABLE_SUFFIX)
 FS_GET_STATS := $(HOST_OUT_EXECUTABLES)/fs_get_stats$(HOST_EXECUTABLE_SUFFIX)
 MKEXT2IMG := $(HOST_OUT_EXECUTABLES)/genext2fs$(HOST_EXECUTABLE_SUFFIX)
+MAKE_EXT4FS := $(HOST_OUT_EXECUTABLES)/make_ext4fs$(HOST_EXECUTABLE_SUFFIX)
+MKEXT2USERIMG := $(HOST_OUT_EXECUTABLES)/mkuserimg.sh
 MKEXT2BOOTIMG := external/genext2fs/mkbootimg_ext2.sh
 MKTARBALL := build/tools/mktarball.sh
 TUNE2FS := tune2fs
 E2FSCK := e2fsck
-JARJAR := java -jar $(HOST_OUT_JAVA_LIBRARIES)/jarjar.jar
+JARJAR := $(HOST_OUT_JAVA_LIBRARIES)/jarjar.jar
 PROGUARD := external/proguard/bin/proguard.sh
+JAVATAGS := build/tools/java-event-log-tags.py
+DEXOPT := $(HOST_OUT_EXECUTABLES)/dexopt$(HOST_EXECUTABLE_SUFFIX)
+DEXPREOPT := dalvik/tools/dex-preopt
+
+# ACP is always for the build OS, not for the host OS
+ACP := $(BUILD_OUT_EXECUTABLES)/acp$(BUILD_EXECUTABLE_SUFFIX)
 
 # dx is java behind a shell script; no .exe necessary.
 DX := $(HOST_OUT_EXECUTABLES)/dx
@@ -215,7 +243,6 @@ EMMA_JAR := external/emma/lib/emma$(COMMON_JAVA_PACKAGE_SUFFIX)
 # Binary prelinker/compressor tools
 APRIORI := $(HOST_OUT_EXECUTABLES)/apriori$(HOST_EXECUTABLE_SUFFIX)
 LSD := $(HOST_OUT_EXECUTABLES)/lsd$(HOST_EXECUTABLE_SUFFIX)
-SOSLIM := $(HOST_OUT_EXECUTABLES)/soslim$(HOST_EXECUTABLE_SUFFIX)
 
 # Deal with archaic version of bison on Mac OS X.
 ifeq ($(filter 1.28,$(shell $(YACC) -V)),)
@@ -248,6 +275,12 @@ ifeq ($(HOST_OS),darwin)
 HOST_JDK_TOOLS_JAR :=
 else
 HOST_JDK_TOOLS_JAR:= $(shell $(BUILD_SYSTEM)/find-jdk-tools-jar.sh)
+endif
+
+# Is the host JDK 64-bit version?
+HOST_JDK_IS_64BIT_VERSION :=
+ifneq ($(filter 64-Bit, $(shell java -version 2>&1)),)
+HOST_JDK_IS_64BIT_VERSION := true
 endif
 
 # It's called md5 on Mac OS and md5sum on Linux
@@ -292,36 +325,41 @@ endif
 HOST_GLOBAL_CFLAGS += $(HOST_RELEASE_CFLAGS)
 HOST_GLOBAL_CPPFLAGS += $(HOST_RELEASE_CPPFLAGS)
 
-TARGET_GLOBAL_CFLAGS += $(TARGET_RELEASE_CFLAGS)
-TARGET_GLOBAL_CPPFLAGS += $(TARGET_RELEASE_CPPFLAGS)
+TARGET_GLOBAL_CFLAGS += $(TARGET_RELEASE_CFLAGS) $(BOARD_GLOBAL_CFLAGS)
+TARGET_GLOBAL_CPPFLAGS += $(TARGET_RELEASE_CPPFLAGS) $(BOARD_GLOBAL_CFLAGS)
 
 PREBUILT_IS_PRESENT := $(if $(wildcard prebuilt/Android.mk),true)
-
 
 # ###############################################################
 # Collect a list of the SDK versions that we could compile against
 # For use with the LOCAL_SDK_VERSION variable for include $(BUILD_PACKAGE)
 # ###############################################################
 
-# The files that we can convert into android.jars are are in config/api/*.xml
-# The 'current' version is whatever this source tree is.  Once the apicheck
-# tool can generate the stubs from the xml files, we'll use that to be
-# able to build back-versions.  In the meantime, 'current' is the only
-# one supported.
+HISTORICAL_SDK_VERSIONS_ROOT := $(TOPDIR)prebuilt/sdk
+HISTORICAL_NDK_VERSIONS_ROOT := $(TOPDIR)prebuilt/ndk
+
+# Historical SDK version N is stored in $(HISTORICAL_SDK_VERSIONS_ROOT)/N.
+# The 'current' version is whatever this source tree is.
 #
 # sgrax     is the opposite of xargs.  It takes the list of args and puts them
 #           on each line for sort to process.
 # sort -g   is a numeric sort, so 1 2 3 10 instead of 1 10 2 3.
-TARGET_AVAILABLE_SDK_VERSIONS := current \
-        $(shell function sgrax() { \
-                while [ -n "$$1" ] ; do echo $$1 ; shift ; done \
-            } ; \
-            ( sgrax $(patsubst $(SRC_API_DIR)/%.xml,%, \
-                $(filter-out $(SRC_API_DIR)/current.xml, \
-                $(shell find $(SRC_API_DIR) -name "*.xml"))) | sort -g ) )
 
+# Numerically sort a list of numbers
+# $(1): the list of numbers to be sorted
+define numerically_sort
+$(shell function sgrax() { \
+    while [ -n "$$1" ] ; do echo $$1 ; shift ; done \
+    } ; \
+    ( sgrax $(1) | sort -g ) )
+endef
+
+TARGET_AVAILABLE_SDK_VERSIONS := current $(call numerically_sort,\
+    $(patsubst $(HISTORICAL_SDK_VERSIONS_ROOT)/%/android.jar,%, \
+    $(wildcard $(HISTORICAL_SDK_VERSIONS_ROOT)/*/android.jar)))
+
+TARGET_AVAILABLE_NDK_VERSIONS := $(call numerically_sort,\
+    $(patsubst $(HISTORICAL_NDK_VERSIONS_ROOT)/android-ndk-r%,%, \
+    $(wildcard $(HISTORICAL_NDK_VERSIONS_ROOT)/android-ndk-r*)))
 
 INTERNAL_PLATFORM_API_FILE := $(TARGET_OUT_COMMON_INTERMEDIATES)/PACKAGING/public_api.xml
-
-
-
