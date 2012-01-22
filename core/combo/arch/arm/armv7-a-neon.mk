@@ -21,7 +21,6 @@ arch_variant_cflags := \
     -marm \
     -funsafe-loop-optimizations \
     -funroll-loops \
-    -ffast-math \
     -march=armv7-a \
     -mfloat-abi=softfp \
     -mfpu=neon
