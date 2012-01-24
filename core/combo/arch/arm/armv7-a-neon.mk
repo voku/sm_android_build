@@ -16,11 +16,6 @@ ARCH_ARM_HAVE_NEON              := true
 # and a better solution should be found in the future.
 #
 arch_variant_cflags := \
-    -O3 \
-    -pipe \
-    -marm \
-    -funsafe-loop-optimizations \
-    -funroll-loops \
     -march=armv7-a \
     -mfloat-abi=softfp \
     -mfpu=neon
