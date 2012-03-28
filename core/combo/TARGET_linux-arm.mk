@@ -59,19 +59,12 @@ TARGET_STRIP_COMMAND = $(TARGET_STRIP) --strip --shady --quiet $< --outfile $@
 
 TARGET_NO_UNDEFINED_LDFLAGS := -Wl,--no-undefined
 
-TARGET_arm_CFLAGS :=    \
-                        -O3 \
-                        -funswitch-loops \
+TARGET_arm_CFLAGS :=    -O2 \
                         -fomit-frame-pointer \
                         -fstrict-aliasing    \
+                        -funswitch-loops     \
                         -finline-limit=300
 
-#TARGET_arm_CFLAGS +=   \
-                        -ffast-math \
-                        -floop-interchange \
-                        -floop-strip-mine \
-                        -floop-block \
- 
 # Modules can choose to compile some source as thumb. As
 # non-thumb enabled targets are supported, this is treated
 # as a 'hint'. If thumb is not enabled, these files are just
@@ -128,7 +121,7 @@ endif
 
 TARGET_GLOBAL_CPPFLAGS += -fvisibility-inlines-hidden
 
-TARGET_RELEASE_CFLAGS += \
+TARGET_RELEASE_CFLAGS := \
 			-DNDEBUG \
 			-g \
 			-Wstrict-aliasing=2 \

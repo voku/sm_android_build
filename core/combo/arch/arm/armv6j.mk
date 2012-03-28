@@ -14,15 +14,7 @@ ARCH_ARM_HAVE_FFS               := true
 arch_variant_cflags := \
     -march=armv6j \
     -mtune=arm1176jzf-s \
-    -O3 \
     -pipe \
-    -floop-interchange \
-    -floop-strip-mine \
-    -floop-block \
-    -ffast-math \
-    -funsafe-loop-optimizations \
-    -mfloat-abi=softfp \
-    -funroll-loops \
     -fomit-frame-pointer \
     -D__ARM_ARCH_5__ \
     -D__ARM_ARCH_5T__ \
