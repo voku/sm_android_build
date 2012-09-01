@@ -1,6 +1,5 @@
 # Variables we check:
 #     HOST_BUILD_TYPE = { release debug }
-#     TARGET_SIMULATOR = { true <null> }
 #     TARGET_BUILD_TYPE = { release debug }
 # and we output a bunch of variables, see the case statement at
 # the bottom for the full list
@@ -19,15 +18,11 @@ include $(BUILD_SYSTEM)/version_defaults.mk
 CORRECT_BUILD_ENV_SEQUENCE_NUMBER := 10
 
 # ---------------------------------------------------------------
-# The product defaults to generic on hardware and sim on sim
+# The product defaults to generic on hardware
 # NOTE: This will be overridden in product_config.mk if make
 # was invoked with a PRODUCT-xxx-yyy goal.
 ifeq ($(TARGET_PRODUCT),)
-ifeq ($(TARGET_SIMULATOR),true)
-TARGET_PRODUCT := sim
-else
 TARGET_PRODUCT := full
-endif
 endif
 
 
@@ -35,18 +30,6 @@ endif
 ifeq ($(strip $(TARGET_BUILD_VARIANT)),)
 TARGET_BUILD_VARIANT := eng
 endif
-
-# Read the product specs so we an get TARGET_DEVICE and other
-# variables that we need in order to locate the output files.
-include $(BUILD_SYSTEM)/product_config.mk
-
-build_variant := $(filter-out eng user userdebug tests,$(TARGET_BUILD_VARIANT))
-ifneq ($(build_variant)-$(words $(TARGET_BUILD_VARIANT)),-1)
-$(warning bad TARGET_BUILD_VARIANT: $(TARGET_BUILD_VARIANT))
-$(error must be empty or one of: eng user userdebug tests)
-endif
-
-
 
 # ---------------------------------------------------------------
 # Set up configuration for host machine.  We don't do cross-
@@ -111,6 +94,14 @@ $(error HOST_BUILD_TYPE must be either release or debug, not '$(HOST_BUILD_TYPE)
 endif
 endif
 
+# Get whether the host is running a 32-bit or a 64-bit OS
+HOST_BITS := $(strip $(shell getconf LONG_BIT))
+ifneq ($(HOST_BITS),32)
+ifneq ($(HOST_BITS),64)
+HOST_BITS :=
+endif
+endif
+
 # This is the standard way to name a directory containing prebuilt host
 # objects. E.g., prebuilt/$(HOST_PREBUILT_TAG)/cc
 ifeq ($(HOST_OS),windows)
@@ -119,17 +110,31 @@ else
   HOST_PREBUILT_TAG := $(HOST_OS)-$(HOST_ARCH)
 endif
 
-# Default to building dalvikvm on hosts that support it...
-ifeq ($(HOST_OS),linux)
-# ... but not if we're building the sim...
-ifneq ($(TARGET_SIMULATOR),true)
-# ... or if the if the option is already set
-ifeq ($(WITH_HOST_DALVIK),)
-	WITH_HOST_DALVIK := true
-endif
-endif
+# If $(HOST_BITS) could be determined $(HOST_PREBUILT_EXTRA_TAG) contains
+# this as well and should be checked for a prebuilt first
+ifeq ($(strip $(HOST_BITS)),)
+  HOST_PREBUILT_EXTRA_TAG := $(HOST_PREBUILT_TAG)
+else
+  HOST_PREBUILT_EXTRA_TAG := $(HOST_PREBUILT_TAG)-$(HOST_BITS)
 endif
 
+# TARGET_COPY_OUT_* are all relative to the staging directory, ie PRODUCT_OUT.
+# Define them here so they can be used in product config files.
+TARGET_COPY_OUT_SYSTEM := system
+TARGET_COPY_OUT_DATA := data
+TARGET_COPY_OUT_VENDOR := system/vendor
+TARGET_COPY_OUT_ROOT := root
+TARGET_COPY_OUT_RECOVERY := recovery
+
+# Read the product specs so we an get TARGET_DEVICE and other
+# variables that we need in order to locate the output files.
+include $(BUILD_SYSTEM)/product_config.mk
+
+build_variant := $(filter-out eng user userdebug tests,$(TARGET_BUILD_VARIANT))
+ifneq ($(build_variant)-$(words $(TARGET_BUILD_VARIANT)),-1)
+$(warning bad TARGET_BUILD_VARIANT: $(TARGET_BUILD_VARIANT))
+$(error must be empty or one of: eng user userdebug tests)
+endif
 
 # ---------------------------------------------------------------
 # Set up configuration for target machine.
@@ -138,20 +143,10 @@ endif
 # 		TARGET_ARCH = { arm | x86 }
 
 
-# if we're build the simulator, HOST_* is TARGET_* (except for BUILD_TYPE)
-# otherwise  it's <arch>-linux
-ifeq ($(TARGET_SIMULATOR),true)
-ifneq ($(HOST_OS),linux)
-$(error TARGET_SIMULATOR=true is only supported under Linux)
-endif
-TARGET_ARCH := $(HOST_ARCH)
-TARGET_OS := $(HOST_OS)
-else
 ifeq ($(TARGET_ARCH),)
 TARGET_ARCH := arm
 endif
 TARGET_OS := linux
-endif
 
 # the target build type defaults to release
 ifneq ($(TARGET_BUILD_TYPE),debug)
@@ -162,7 +157,11 @@ endif
 # figure out the output directories
 
 ifeq (,$(strip $(OUT_DIR)))
+ifeq (,$(strip $(OUT_DIR_COMMON_BASE)))
 OUT_DIR := $(TOPDIR)out
+else
+OUT_DIR := $(OUT_DIR_COMMON_BASE)/$(notdir $(PWD))
+endif
 endif
 
 DEBUG_OUT_DIR := $(OUT_DIR)/debug
@@ -183,15 +182,7 @@ HOST_OUT := $(HOST_OUT_$(HOST_BUILD_TYPE))
 
 BUILD_OUT := $(OUT_DIR)/host/$(BUILD_OS)-$(BUILD_ARCH)
 
-ifeq ($(TARGET_SIMULATOR),true)
-  # Any arch- or os-specific parts of the simulator (everything
-  # under product/) are actually host-dependent.
-  # But, the debug type is controlled by TARGET_BUILD_TYPE and not
-  # HOST_BUILD_TYPE.
-  TARGET_PRODUCT_OUT_ROOT := $(HOST_OUT_$(TARGET_BUILD_TYPE))/pr
-else
-  TARGET_PRODUCT_OUT_ROOT := $(TARGET_OUT_ROOT)/product
-endif
+TARGET_PRODUCT_OUT_ROOT := $(TARGET_OUT_ROOT)/product
 
 TARGET_COMMON_OUT_ROOT := $(TARGET_OUT_ROOT)/common
 HOST_COMMON_OUT_ROOT := $(HOST_OUT_ROOT)/common
@@ -219,7 +210,7 @@ TARGET_OUT_HEADERS:= $(TARGET_OUT_INTERMEDIATES)/include
 TARGET_OUT_INTERMEDIATE_LIBRARIES := $(TARGET_OUT_INTERMEDIATES)/lib
 TARGET_OUT_COMMON_INTERMEDIATES := $(TARGET_COMMON_OUT_ROOT)/obj
 
-TARGET_OUT := $(PRODUCT_OUT)/system
+TARGET_OUT := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_SYSTEM)
 TARGET_OUT_EXECUTABLES:= $(TARGET_OUT)/bin
 TARGET_OUT_OPTIONAL_EXECUTABLES:= $(TARGET_OUT)/xbin
 TARGET_OUT_SHARED_LIBRARIES:= $(TARGET_OUT)/lib
@@ -230,8 +221,9 @@ TARGET_OUT_KEYCHARS := $(TARGET_OUT)/usr/keychars
 TARGET_OUT_ETC := $(TARGET_OUT)/etc
 TARGET_OUT_STATIC_LIBRARIES:= $(TARGET_OUT_INTERMEDIATES)/lib
 TARGET_OUT_NOTICE_FILES:=$(TARGET_OUT_INTERMEDIATES)/NOTICE_FILES
+TARGET_OUT_FAKE := $(PRODUCT_OUT)/fake_packages
 
-TARGET_OUT_DATA := $(PRODUCT_OUT)/data
+TARGET_OUT_DATA := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_DATA)
 TARGET_OUT_DATA_EXECUTABLES:= $(TARGET_OUT_EXECUTABLES)
 TARGET_OUT_DATA_SHARED_LIBRARIES:= $(TARGET_OUT_SHARED_LIBRARIES)
 TARGET_OUT_DATA_JAVA_LIBRARIES:= $(TARGET_OUT_JAVA_LIBRARIES)
@@ -240,6 +232,17 @@ TARGET_OUT_DATA_KEYLAYOUT := $(TARGET_OUT_KEYLAYOUT)
 TARGET_OUT_DATA_KEYCHARS := $(TARGET_OUT_KEYCHARS)
 TARGET_OUT_DATA_ETC := $(TARGET_OUT_ETC)
 TARGET_OUT_DATA_STATIC_LIBRARIES:= $(TARGET_OUT_STATIC_LIBRARIES)
+TARGET_OUT_DATA_NATIVE_TESTS := $(TARGET_OUT_DATA)/nativetest
+
+TARGET_OUT_CACHE := $(PRODUCT_OUT)/cache
+
+TARGET_OUT_VENDOR := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_VENDOR)
+TARGET_OUT_VENDOR_EXECUTABLES:= $(TARGET_OUT_VENDOR)/bin
+TARGET_OUT_VENDOR_OPTIONAL_EXECUTABLES:= $(TARGET_OUT_VENDOR)/xbin
+TARGET_OUT_VENDOR_SHARED_LIBRARIES:= $(TARGET_OUT_VENDOR)/lib
+TARGET_OUT_VENDOR_JAVA_LIBRARIES:= $(TARGET_OUT_VENDOR)/framework
+TARGET_OUT_VENDOR_APPS:= $(TARGET_OUT_VENDOR)/app
+TARGET_OUT_VENDOR_ETC := $(TARGET_OUT_VENDOR)/etc
 
 TARGET_OUT_UNSTRIPPED := $(PRODUCT_OUT)/symbols
 TARGET_OUT_EXECUTABLES_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)/system/bin
@@ -248,13 +251,13 @@ TARGET_ROOT_OUT_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)
 TARGET_ROOT_OUT_SBIN_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)/sbin
 TARGET_ROOT_OUT_BIN_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)/bin
 
-TARGET_ROOT_OUT := $(PRODUCT_OUT)/root
+TARGET_ROOT_OUT := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_ROOT)
 TARGET_ROOT_OUT_BIN := $(TARGET_ROOT_OUT)/bin
 TARGET_ROOT_OUT_SBIN := $(TARGET_ROOT_OUT)/sbin
 TARGET_ROOT_OUT_ETC := $(TARGET_ROOT_OUT)/etc
 TARGET_ROOT_OUT_USR := $(TARGET_ROOT_OUT)/usr
 
-TARGET_RECOVERY_OUT := $(PRODUCT_OUT)/recovery
+TARGET_RECOVERY_OUT := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_RECOVERY)
 TARGET_RECOVERY_ROOT_OUT := $(TARGET_RECOVERY_OUT)/root
 
 TARGET_SYSLOADER_OUT := $(PRODUCT_OUT)/sysloader
@@ -265,6 +268,8 @@ TARGET_INSTALLER_OUT := $(PRODUCT_OUT)/installer
 TARGET_INSTALLER_DATA_OUT := $(TARGET_INSTALLER_OUT)/data
 TARGET_INSTALLER_ROOT_OUT := $(TARGET_INSTALLER_OUT)/root
 TARGET_INSTALLER_SYSTEM_OUT := $(TARGET_INSTALLER_OUT)/root/system
+
+TARGET_FACTORY_RAMDISK_OUT := $(PRODUCT_OUT)/factory_ramdisk
 
 COMMON_MODULE_CLASSES := TARGET-NOTICE_FILES HOST-NOTICE_FILES HOST-JAVA_LIBRARIES
 

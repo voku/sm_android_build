@@ -19,15 +19,8 @@
 # build quite specifically for the emulator, and might not be
 # entirely appropriate to inherit from for on-device configurations.
 
-$(call inherit-product, $(SRC_TARGET_DIR)/product/full_base.mk)
+$(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/board/generic/device.mk)
-
-PRODUCT_PROPERTY_OVERRIDES += \
-    ro.config.notification_sound=OnTheHunt.ogg \
-    ro.config.alarm_alert=Alarm_Classic.ogg
-
-PRODUCT_PACKAGES += \
-    libreference-ril
 
 # Overrides
 PRODUCT_NAME := full

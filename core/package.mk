@@ -19,7 +19,7 @@
 ##
 ## Additional inputs from base_rules.make:
 ## LOCAL_PACKAGE_NAME: The name of the package; the directory
-##		will be called this.
+## will be called this.
 ##
 ## MODULE, MODULE_PATH, and MODULE_SUFFIX will
 ## be set for you.
@@ -65,6 +65,12 @@ ifeq ($(strip $(LOCAL_MANIFEST_FILE)),)
 LOCAL_MANIFEST_FILE := AndroidManifest.xml
 endif
 
+# If you need to put the MANIFEST_FILE outside of LOCAL_PATH
+# you can use FULL_MANIFEST_FILE
+ifeq ($(strip $(LOCAL_FULL_MANIFEST_FILE)),)
+LOCAL_FULL_MANIFEST_FILE := $(LOCAL_PATH)/$(LOCAL_MANIFEST_FILE)
+endif
+
 ifneq ($(strip $(LOCAL_MODULE_CLASS)),)
 $(error $(LOCAL_PATH): Package modules may not set LOCAL_MODULE_CLASS)
 endif
@@ -75,8 +81,6 @@ LOCAL_MODULE_TAGS := $(strip $(LOCAL_MODULE_TAGS))
 ifeq ($(LOCAL_MODULE_TAGS),)
 LOCAL_MODULE_TAGS := optional
 endif
-
-#$(warning $(LOCAL_PATH) $(LOCAL_PACKAGE_NAME) $(sort $(LOCAL_MODULE_TAGS)))
 
 ifeq ($(filter tests, $(LOCAL_MODULE_TAGS)),)
 # Force localization check if it's not tagged as tests.
@@ -90,17 +94,14 @@ endif
 ifeq (,$(LOCAL_RESOURCE_DIR))
   LOCAL_RESOURCE_DIR := $(LOCAL_PATH)/res
 endif
-LOCAL_RESOURCE_DIR := \
-  $(wildcard $(foreach dir, $(PRODUCT_PACKAGE_OVERLAYS), \
-    $(addprefix $(dir)/, $(LOCAL_RESOURCE_DIR)))) \
-  $(wildcard $(foreach dir, $(DEVICE_PACKAGE_OVERLAYS), \
-    $(addprefix $(dir)/, $(LOCAL_RESOURCE_DIR)))) \
-  $(LOCAL_RESOURCE_DIR)
 
-# this is an app, so add the system libraries to the search path
-LOCAL_AIDL_INCLUDES += $(FRAMEWORKS_BASE_JAVA_SRC_DIRS)
+package_resource_overlays := $(strip \
+    $(wildcard $(foreach dir, $(PRODUCT_PACKAGE_OVERLAYS), \
+      $(addprefix $(dir)/, $(LOCAL_RESOURCE_DIR)))) \
+    $(wildcard $(foreach dir, $(DEVICE_PACKAGE_OVERLAYS), \
+      $(addprefix $(dir)/, $(LOCAL_RESOURCE_DIR)))))
 
-#$(warning Finding assets for $(LOCAL_ASSET_DIR))
+LOCAL_RESOURCE_DIR := $(package_resource_overlays) $(LOCAL_RESOURCE_DIR)
 
 all_assets := $(call find-subdir-assets,$(LOCAL_ASSET_DIR))
 all_assets := $(addprefix $(LOCAL_ASSET_DIR)/,$(patsubst assets/%,%,$(all_assets)))
@@ -154,7 +155,9 @@ endif # all_resources
 endif # !custom
 LOCAL_PROGUARD_FLAGS := $(addprefix -include ,$(proguard_options_file)) $(LOCAL_PROGUARD_FLAGS)
 
-ifeq (true,$(WITH_DEXPREOPT))
+ifneq (true,$(WITH_DEXPREOPT))
+LOCAL_DEX_PREOPT :=
+else
 ifeq (,$(TARGET_BUILD_APPS))
 ifneq (,$(LOCAL_SRC_FILES))
 ifndef LOCAL_DEX_PREOPT
@@ -163,20 +166,29 @@ endif
 endif
 endif
 endif
+ifeq (false,$(LOCAL_DEX_PREOPT))
+LOCAL_DEX_PREOPT :=
+endif
 
-# The dex files go in the package, so we don't
-# want to install them separately for this module.
-old_DONT_INSTALL_DEX_FILES := $(DONT_INSTALL_DEX_FILES)
-DONT_INSTALL_DEX_FILES := true
 #################################
 include $(BUILD_SYSTEM)/java.mk
 #################################
-DONT_INSTALL_DEX_FILES := $(old_DONT_INSTALL_DEX_FILES)
-old_DONT_INSTALL_DEX_FILES =
 
-full_android_manifest := $(LOCAL_PATH)/$(LOCAL_MANIFEST_FILE)
+LOCAL_SDK_RES_VERSION:=$(strip $(LOCAL_SDK_RES_VERSION))
+ifeq ($(LOCAL_SDK_RES_VERSION),)
+  LOCAL_SDK_RES_VERSION:=$(LOCAL_SDK_VERSION)
+endif
+
+full_android_manifest := $(LOCAL_FULL_MANIFEST_FILE)
 $(LOCAL_INTERMEDIATE_TARGETS): \
-	PRIVATE_ANDROID_MANIFEST := $(full_android_manifest)
+    PRIVATE_ANDROID_MANIFEST := $(full_android_manifest)
+ifneq (,$(filter-out current, $(LOCAL_SDK_VERSION)))
+$(LOCAL_INTERMEDIATE_TARGETS): \
+    PRIVATE_DEFAULT_APP_TARGET_SDK := $(LOCAL_SDK_VERSION)
+else
+$(LOCAL_INTERMEDIATE_TARGETS): \
+    PRIVATE_DEFAULT_APP_TARGET_SDK := $(DEFAULT_APP_TARGET_SDK)
+endif
 
 ifneq ($(all_resources),)
 
@@ -197,25 +209,23 @@ endif
 $(R_file_stamp): PRIVATE_RESOURCE_PUBLICS_OUTPUT := \
 			$(intermediates.COMMON)/public_resources.xml
 $(R_file_stamp): PRIVATE_PROGUARD_OPTIONS_FILE := $(proguard_options_file)
-$(R_file_stamp): $(all_res_assets) $(full_android_manifest) $(AAPT) | $(ACP)
-	@echo -e ${CL_PFX}"target R.java/Manifest.java:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
+$(R_file_stamp): $(all_res_assets) $(full_android_manifest) $(RenderScript_file_stamp) $(AAPT) | $(ACP)
+	@echo "target R.java/Manifest.java: $(PRIVATE_MODULE) ($@)"
 	@rm -f $@
 	$(create-resource-java-files)
 	$(hide) for GENERATED_MANIFEST_FILE in `find $(PRIVATE_SOURCE_INTERMEDIATES_DIR) \
 					-name Manifest.java 2> /dev/null`; do \
-		dir=`grep package $$GENERATED_MANIFEST_FILE | head -n1 | \
-			awk '{print $$2}' | tr -d ";" | tr . /`; \
+		dir=`awk '/package/{gsub(/\./,"/",$$2);gsub(/;/,"",$$2);print $$2;exit}' $$GENERATED_MANIFEST_FILE`; \
 		mkdir -p $(TARGET_COMMON_OUT_ROOT)/R/$$dir; \
-		$(ACP) -fpt $$GENERATED_MANIFEST_FILE $(TARGET_COMMON_OUT_ROOT)/R/$$dir; \
+		$(ACP) -fp $$GENERATED_MANIFEST_FILE $(TARGET_COMMON_OUT_ROOT)/R/$$dir; \
 	done;
 	$(hide) for GENERATED_R_FILE in `find $(PRIVATE_SOURCE_INTERMEDIATES_DIR) \
 					-name R.java 2> /dev/null`; do \
-		dir=`grep package $$GENERATED_R_FILE | head -n1 | \
-			awk '{print $$2}' | tr -d ";" | tr . /`; \
+		dir=`awk '/package/{gsub(/\./,"/",$$2);gsub(/;/,"",$$2);print $$2;exit}' $$GENERATED_R_FILE`; \
 		mkdir -p $(TARGET_COMMON_OUT_ROOT)/R/$$dir; \
-		$(ACP) -fpt $$GENERATED_R_FILE $(TARGET_COMMON_OUT_ROOT)/R/$$dir \
+		$(ACP) -fp $$GENERATED_R_FILE $(TARGET_COMMON_OUT_ROOT)/R/$$dir \
 			|| exit 31; \
-		$(ACP) -fpt $$GENERATED_R_FILE $@ || exit 32; \
+		$(ACP) -fp $$GENERATED_R_FILE $@ || exit 32; \
 	done; \
 
 $(proguard_options_file): $(R_file_stamp)
@@ -229,9 +239,10 @@ $(R_file_stamp): $(resource_export_package)
 
 # add-assets-to-package looks at PRODUCT_AAPT_CONFIG, but this target
 # can't know anything about PRODUCT.  Clear it out just for this target.
-$(resource_export_package): PRODUCT_AAPT_CONFIG :=
-$(resource_export_package): $(all_res_assets) $(full_android_manifest) $(AAPT)
-	@echo -e ${CL_PFX}"target Export Resources:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
+$(resource_export_package): PRIVATE_PRODUCT_AAPT_CONFIG :=
+$(resource_export_package): PRIVATE_PRODUCT_AAPT_PREF_CONFIG :=
+$(resource_export_package): $(all_res_assets) $(full_android_manifest) $(RenderScript_file_stamp) $(AAPT)
+	@echo "target Export Resources: $(PRIVATE_MODULE) ($@)"
 	$(create-empty-package)
 	$(add-assets-to-package)
 endif
@@ -248,7 +259,7 @@ ifneq ($(full_classes_jar),)
 $(full_classes_compiled_jar): $(R_file_stamp)
 endif
 
-endif	# all_resources
+endif  # all_resources
 
 ifeq ($(LOCAL_NO_STANDARD_LIBRARIES),true)
 # We need to explicitly clear this var so that we don't
@@ -258,23 +269,23 @@ else
 # Most packages should link against the resources defined by framework-res.
 # Even if they don't have their own resources, they may use framework
 # resources.
-ifneq ($(filter-out current,$(LOCAL_SDK_VERSION)),)
+ifneq ($(filter-out current,$(LOCAL_SDK_RES_VERSION))$(if $(TARGET_BUILD_APPS),$(filter current,$(LOCAL_SDK_RES_VERSION))),)
 # for released sdk versions, the platform resources were built into android.jar.
 framework_res_package_export := \
-	$(HISTORICAL_SDK_VERSIONS_ROOT)/$(LOCAL_SDK_VERSION)/android.jar
+    $(HISTORICAL_SDK_VERSIONS_ROOT)/$(LOCAL_SDK_RES_VERSION)/android.jar
 framework_res_package_export_deps := $(framework_res_package_export)
-else # LOCAL_SDK_VERSION
+else # LOCAL_SDK_RES_VERSION
 framework_res_package_export := \
-	$(call intermediates-dir-for,APPS,framework-res,,COMMON)/package-export.apk
+    $(call intermediates-dir-for,APPS,framework-res,,COMMON)/package-export.apk
 # We can't depend directly on the export.apk file; it won't get its
 # PRIVATE_ vars set up correctly if we do.  Instead, depend on the
 # corresponding R.stamp file, which lists the export.apk as a dependency.
 framework_res_package_export_deps := \
-	$(dir $(framework_res_package_export))src/R.stamp
-endif # LOCAL_SDK_VERSION
+    $(dir $(framework_res_package_export))src/R.stamp
+endif # LOCAL_SDK_RES_VERSION
 $(R_file_stamp): $(framework_res_package_export_deps)
 $(LOCAL_INTERMEDIATE_TARGETS): \
-	PRIVATE_AAPT_INCLUDES := $(framework_res_package_export)
+    PRIVATE_AAPT_INCLUDES := $(framework_res_package_export)
 endif # LOCAL_NO_STANDARD_LIBRARIES
 
 ifneq ($(full_classes_jar),)
@@ -292,25 +303,47 @@ jni_shared_libraries := \
       $(addsuffix $(so_suffix), \
         $(LOCAL_JNI_SHARED_LIBRARIES)))
 
+# App explicitly requires the prebuilt NDK libstlport_shared.so.
+# libstlport_shared.so should never go to the system image.
+# Instead it should be packaged into the apk.
+ifeq (stlport_shared,$(LOCAL_NDK_STL_VARIANT))
+ifndef LOCAL_NDK_VERSION
+$(error LOCAL_NDK_VERSION has to be defined together with LOCAL_NDK_STL_VARIANT, \
+    LOCAL_PACKAGE_NAME=$(LOCAL_PACKAGE_NAME))
+endif
+jni_shared_libraries += \
+    $(HISTORICAL_NDK_VERSIONS_ROOT)/android-ndk-r$(LOCAL_NDK_VERSION)/sources/cxx-stl/stlport/libs/$(TARGET_CPU_ABI)/libstlport_shared.so
+endif
+
+# Set the abi directory used by the local JNI shared libraries.
+# (Doesn't change how the local shared libraries are compiled, just
+# sets where they are stored in the apk.)
+
+ifeq ($(LOCAL_JNI_SHARED_LIBRARIES_ABI),)
+    jni_shared_libraries_abi := $(TARGET_CPU_ABI)
+else
+    jni_shared_libraries_abi := $(LOCAL_JNI_SHARED_LIBRARIES_ABI)
+endif
+
 # Pick a key to sign the package with.  If this package hasn't specified
 # an explicit certificate, use the default.
 # Secure release builds will have their packages signed after the fact,
 # so it's ok for these private keys to be in the clear.
 ifeq ($(LOCAL_CERTIFICATE),)
-    LOCAL_CERTIFICATE := testkey
+    LOCAL_CERTIFICATE := $(DEFAULT_SYSTEM_DEV_CERTIFICATE)
 endif
 
 ifeq ($(LOCAL_CERTIFICATE),EXTERNAL)
   # The special value "EXTERNAL" means that we will sign it with the
-  # default testkey, apply predexopt, but then expect the final .apk
+  # default devkey, apply predexopt, but then expect the final .apk
   # (after dexopting) to be signed by an outside tool.
-  LOCAL_CERTIFICATE := testkey
+  LOCAL_CERTIFICATE := $(DEFAULT_SYSTEM_DEV_CERTIFICATE)
   PACKAGES.$(LOCAL_PACKAGE_NAME).EXTERNAL_KEY := 1
 endif
 
 # If this is not an absolute certificate, assign it to a generic one.
 ifeq ($(dir $(strip $(LOCAL_CERTIFICATE))),./)
-    LOCAL_CERTIFICATE := $(SRC_TARGET_DIR)/product/security/$(LOCAL_CERTIFICATE)
+    LOCAL_CERTIFICATE := $(dir $(DEFAULT_SYSTEM_DEV_CERTIFICATE))$(LOCAL_CERTIFICATE)
 endif
 private_key := $(LOCAL_CERTIFICATE).pk8
 certificate := $(LOCAL_CERTIFICATE).x509.pem
@@ -324,17 +357,25 @@ PACKAGES.$(LOCAL_PACKAGE_NAME).CERTIFICATE := $(certificate)
 
 # Define the rule to build the actual package.
 $(LOCAL_BUILT_MODULE): $(AAPT) | $(ZIPALIGN)
-ifeq ($(LOCAL_DEX_PREOPT),true)
+ifdef LOCAL_DEX_PREOPT
 # Make sure the boot jars get dexpreopt-ed first
 $(LOCAL_BUILT_MODULE): $(DEXPREOPT_BOOT_ODEXS) | $(DEXPREOPT) $(DEXOPT)
 endif
 $(LOCAL_BUILT_MODULE): PRIVATE_JNI_SHARED_LIBRARIES := $(jni_shared_libraries)
+$(LOCAL_BUILT_MODULE): PRIVATE_JNI_SHARED_LIBRARIES_ABI := $(jni_shared_libraries_abi)
 ifneq ($(TARGET_BUILD_APPS),)
     # Include all resources for unbundled apps.
-    $(LOCAL_BUILT_MODULE): PRODUCT_AAPT_CONFIG :=
+    LOCAL_AAPT_INCLUDE_ALL_RESOURCES := true
+endif
+ifeq ($(LOCAL_AAPT_INCLUDE_ALL_RESOURCES),true)
+    $(LOCAL_BUILT_MODULE): PRIVATE_PRODUCT_AAPT_CONFIG :=
+    $(LOCAL_BUILT_MODULE): PRIVATE_PRODUCT_AAPT_PREF_CONFIG :=
+else
+    $(LOCAL_BUILT_MODULE): PRIVATE_PRODUCT_AAPT_CONFIG := $(PRODUCT_AAPT_CONFIG)
+    $(LOCAL_BUILT_MODULE): PRIVATE_PRODUCT_AAPT_PREF_CONFIG := $(PRODUCT_AAPT_PREF_CONFIG)
 endif
 $(LOCAL_BUILT_MODULE): $(all_res_assets) $(jni_shared_libraries) $(full_android_manifest)
-	@echo -e ${CL_PFX}"target Package:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
+	@echo "target Package: $(PRIVATE_MODULE) ($@)"
 	$(create-empty-package)
 	$(add-assets-to-package)
 ifneq ($(jni_shared_libraries),)
@@ -346,10 +387,12 @@ endif
 	$(sign-package)
 	@# Alignment must happen after all other zip operations.
 	$(align-package)
-ifeq ($(LOCAL_DEX_PREOPT),true)
+ifdef LOCAL_DEX_PREOPT
 	$(hide) rm -f $(patsubst %.apk,%.odex,$@)
 	$(call dexpreopt-one-file,$@,$(patsubst %.apk,%.odex,$@))
+ifneq (nostripping,$(LOCAL_DEX_PREOPT))
 	$(call dexpreopt-remove-classes.dex,$@)
+endif
 
 built_odex := $(basename $(LOCAL_BUILT_MODULE)).odex
 $(built_odex): $(LOCAL_BUILT_MODULE)
@@ -358,6 +401,9 @@ endif
 # Save information about this package
 PACKAGES.$(LOCAL_PACKAGE_NAME).OVERRIDES := $(strip $(LOCAL_OVERRIDES_PACKAGES))
 PACKAGES.$(LOCAL_PACKAGE_NAME).RESOURCE_FILES := $(all_resources)
+ifdef package_resource_overlays
+PACKAGES.$(LOCAL_PACKAGE_NAME).RESOURCE_OVERLAYS := $(package_resource_overlays)
+endif
 
 PACKAGES := $(PACKAGES) $(LOCAL_PACKAGE_NAME)
 

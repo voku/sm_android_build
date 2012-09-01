@@ -32,26 +32,25 @@ endef
 # which is loaded by the 64-bit JVM through JNI), will have to use
 # LOCAL_CC and LOCAL_CXX to override this.
 #
-ifeq ($(TARGET_PRODUCT),sdk)
-HOST_SDK_TOOLCHAIN_PREFIX := prebuilt/linux-x86/toolchain/i686-linux-glibc2.7-4.4.3/bin/i686-linux
+HOST_SDK_TOOLCHAIN_PREFIX := prebuilts/tools/gcc-sdk
 # Don't do anything if the toolchain is not there
-ifneq (,$(strip $(wildcard $(HOST_SDK_TOOLCHAIN_PREFIX)-gcc)))
-HOST_CC  := $(HOST_SDK_TOOLCHAIN_PREFIX)-gcc
-HOST_CXX := $(HOST_SDK_TOOLCHAIN_PREFIX)-g++
-HOST_AR  := $(HOST_SDK_TOOLCHAIN_PREFIX)-ar
-endif # $(HOST_SDK_TOOLCHAIN_PREFIX)-gcc exists
-endif # TARGET_PRODUCT == sdk
+ifneq (,$(strip $(wildcard $(HOST_SDK_TOOLCHAIN_PREFIX)/gcc)))
+HOST_CC  := $(HOST_SDK_TOOLCHAIN_PREFIX)/gcc
+HOST_CXX := $(HOST_SDK_TOOLCHAIN_PREFIX)/g++
+HOST_AR  := $(HOST_SDK_TOOLCHAIN_PREFIX)/ar
+endif # $(HOST_SDK_TOOLCHAIN_PREFIX)/gcc exists
 
-# We build everything in 32-bit, because some host tools are
-# 32-bit-only anyway (emulator, acc), and because it gives us
+ifneq ($(strip $(BUILD_HOST_64bit)),)
+# By default we build everything in 32-bit, because it gives us
 # more consistency between the host tools and the target.
-# The exception is the host side of the simulator, which
-# requires to use the default size, as wxWidgets code otherwise
-# fails to build.
-ifneq ($(TARGET_SIMULATOR),true)
+# BUILD_HOST_64bit=1 overrides it for tool like emulator
+# which can benefit from 64-bit host arch.
+HOST_GLOBAL_CFLAGS += -m64
+HOST_GLOBAL_LDFLAGS += -m64
+else
 HOST_GLOBAL_CFLAGS += -m32
 HOST_GLOBAL_LDFLAGS += -m32
-endif
+endif # BUILD_HOST_64bit
 
 HOST_GLOBAL_CFLAGS += -fPIC
 HOST_GLOBAL_CFLAGS += \

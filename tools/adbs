@@ -113,7 +113,7 @@ def FindSymbolsDir():
     path = os.environ['ANDROID_PRODUCT_OUT'] + "/symbols"
   except:
     cmd = "CALLED_FROM_SETUP=true BUILD_SYSTEM=build/core " \
-      + "SRC_TARGET_DIR=build/target make -f build/core/envsetup.mk " \
+      + "SRC_TARGET_DIR=build/target make -f build/core/config.mk " \
       + "dumpvar-abs-TARGET_OUT_UNSTRIPPED"
     stream = os.popen(cmd)
     str = stream.read()
@@ -137,30 +137,26 @@ def SetupToolsPath():
 
   uname = os.uname()[0]
   if uname == "Darwin":
-    proc = os.uname()[-1]
-    if proc == "i386":
-      uname = "darwin-x86"
-    else:
-      uname = "darwin-ppc"
+    uname = "darwin-x86"
   elif uname == "Linux":
     uname = "linux-x86"
-  prefix = "./prebuilt/" + uname + "/toolchain/arm-eabi-4.4.3/bin/"
-  addr2line_cmd = prefix + "arm-eabi-addr2line"
+  prefix = "./prebuilts/gcc/" + uname + "/arm/arm-linux-androideabi-4.6/bin/"
+  addr2line_cmd = prefix + "arm-linux-androideabi-addr2line"
 
   if (not os.path.exists(addr2line_cmd)):
     try:
-      prefix = os.environ['ANDROID_BUILD_TOP'] + "/prebuilt/" + uname + \
-               "/toolchain/arm-eabi-4.4.3/bin/"
+      prefix = os.environ['ANDROID_BUILD_TOP'] + "/prebuilts/gcc/" + \
+               uname + "/arm/arm-linux-androideabi-4.6/bin/"
     except:
       prefix = "";
 
-    addr2line_cmd = prefix + "arm-eabi-addr2line"
+    addr2line_cmd = prefix + "arm-linux-androideabi-addr2line"
     if (not os.path.exists(addr2line_cmd)):
       print addr2line_cmd + " not found!"
       sys.exit(1)
 
-  objdump_cmd = prefix + "arm-eabi-objdump"
-  cppfilt_cmd = prefix + "arm-eabi-c++filt"
+  objdump_cmd = prefix + "arm-linux-androideabi-objdump"
+  cppfilt_cmd = prefix + "arm-linux-androideabi-c++filt"
 
 ###############################################################################
 # look up the function and file/line number for a raw stack trace line

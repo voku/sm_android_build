@@ -20,7 +20,6 @@ import imp
 import os
 import platform
 import re
-import hashlib
 import shutil
 import subprocess
 import sys
@@ -28,6 +27,11 @@ import tempfile
 import threading
 import time
 import zipfile
+
+try:
+  from hashlib import sha1 as sha1
+except ImportError:
+  from sha import sha as sha1
 
 # missing in Python 2.4 and before
 if not hasattr(os, "SEEK_SET"):
@@ -134,6 +138,7 @@ def LoadInfoDict(zip):
   makeint("blocksize")
   makeint("system_size")
   makeint("userdata_size")
+  makeint("cache_size")
   makeint("recovery_size")
   makeint("boot_size")
 
@@ -147,10 +152,8 @@ def LoadRecoveryFSTab(zip):
   try:
     data = zip.read("RECOVERY/RAMDISK/etc/recovery.fstab")
   except KeyError:
-    try:
-       data = zip.read("RECOVERY/RAMDISK/misc/recovery.fstab")
-    except KeyError:
-      raise ValueError("Could not find RECOVERY/RAMDISK/etc/recovery.fstab or RECOVERY/RAMDISK/misc/recovery.fstab")
+    print "Warning: could not find RECOVERY/RAMDISK/etc/recovery.fstab in %s." % zip
+    data = ""
 
   d = {}
   for line in data.split("\n"):
@@ -164,10 +167,26 @@ def LoadRecoveryFSTab(zip):
     p.mount_point = pieces[0]
     p.fs_type = pieces[1]
     p.device = pieces[2]
+    p.length = 0
+    options = None
     if len(pieces) >= 4 and pieces[3] != 'NULL':
-      p.device2 = pieces[3]
+      if pieces[3].startswith("/"):
+        p.device2 = pieces[3]
+        if len(pieces) >= 5:
+          options = pieces[4]
+      else:
+        p.device2 = None
+        options = pieces[3]
     else:
       p.device2 = None
+
+    if options:
+      options = options.split(",")
+      for i in options:
+        if i.startswith("length="):
+          p.length = int(i[7:])
+        else:
+          print "%s: unknown option \"%s\"" % (p.mount_point, i)
 
     d[p.mount_point] = p
   return d
@@ -177,24 +196,7 @@ def DumpInfoDict(d):
   for k, v in sorted(d.items()):
     print "%-25s = (%s) %s" % (k, type(v).__name__, v)
 
-def BuildAndAddBootableImage(sourcedir, targetname, output_zip, info_dict):
-  """Take a kernel, cmdline, and ramdisk directory from the input (in
-  'sourcedir'), and turn them into a boot image.  Put the boot image
-  into the output zip file under the name 'targetname'.  Returns
-  targetname on success or None on failure (if sourcedir does not
-  appear to contain files for the requested image)."""
-
-  print "creating %s..." % (targetname,)
-
-  img = BuildBootableImage(sourcedir)
-  if img is None:
-    return None
-
-  CheckSize(img, targetname, info_dict)
-  ZipWriteStr(output_zip, targetname, img)
-  return targetname
-
-def BuildBootableImage(sourcedir):
+def BuildBootableImage(sourcedir, fs_config_file):
   """Take a kernel, cmdline, and ramdisk directory from the input (in
   'sourcedir'), and turn them into a boot image.  Return the image
   data, or None if sourcedir does not appear to contains files for
@@ -207,8 +209,11 @@ def BuildBootableImage(sourcedir):
   ramdisk_img = tempfile.NamedTemporaryFile()
   img = tempfile.NamedTemporaryFile()
 
-  p1 = Run(["mkbootfs", os.path.join(sourcedir, "RAMDISK")],
-           stdout=subprocess.PIPE)
+  if os.access(fs_config_file, os.F_OK):
+    cmd = ["mkbootfs", "-f", fs_config_file, os.path.join(sourcedir, "RAMDISK")]
+  else:
+    cmd = ["mkbootfs", os.path.join(sourcedir, "RAMDISK")]
+  p1 = Run(cmd, stdout=subprocess.PIPE)
   p2 = Run(["minigzip"],
            stdin=p1.stdout, stdout=ramdisk_img.file.fileno())
 
@@ -245,6 +250,11 @@ def BuildBootableImage(sourcedir):
       cmd.append("--pagesize")
       cmd.append(open(fn).read().rstrip("\n"))
 
+    fn = os.path.join(sourcedir, "ramdiskaddr")
+    if os.access(fn, os.F_OK):
+      cmd.append("--ramdiskaddr")
+      cmd.append(open(fn).read().rstrip("\n"))
+
     cmd.extend(["--ramdisk", ramdisk_img.name,
                 "--output", img.name])
 
@@ -262,28 +272,55 @@ def BuildBootableImage(sourcedir):
   return data
 
 
-def AddRecovery(output_zip, info_dict):
-  BuildAndAddBootableImage(os.path.join(OPTIONS.input_tmp, "RECOVERY"),
-                           "recovery.img", output_zip, info_dict)
+def GetBootableImage(name, prebuilt_name, unpack_dir, tree_subdir):
+  """Return a File object (with name 'name') with the desired bootable
+  image.  Look for it in 'unpack_dir'/BOOTABLE_IMAGES under the name
+  'prebuilt_name', otherwise construct it from the source files in
+  'unpack_dir'/'tree_subdir'."""
 
-def AddBoot(output_zip, info_dict):
-  BuildAndAddBootableImage(os.path.join(OPTIONS.input_tmp, "BOOT"),
-                           "boot.img", output_zip, info_dict)
+  prebuilt_path = os.path.join(unpack_dir, "BOOTABLE_IMAGES", prebuilt_name)
+  if os.path.exists(prebuilt_path):
+    print "using prebuilt %s..." % (prebuilt_name,)
+    return File.FromLocalFile(name, prebuilt_path)
+  else:
+    print "building image from target_files %s..." % (tree_subdir,)
+    fs_config = "META/" + tree_subdir.lower() + "_filesystem_config.txt"
+    return File(name, BuildBootableImage(os.path.join(unpack_dir, tree_subdir),
+                                         os.path.join(unpack_dir, fs_config)))
+
 
 def UnzipTemp(filename, pattern=None):
-  """Unzip the given archive into a temporary directory and return the name."""
+  """Unzip the given archive into a temporary directory and return the name.
+
+  If filename is of the form "foo.zip+bar.zip", unzip foo.zip into a
+  temp dir, then unzip bar.zip into that_dir/BOOTABLE_IMAGES.
+
+  Returns (tempdir, zipobj) where zipobj is a zipfile.ZipFile (of the
+  main file), open for reading.
+  """
 
   tmp = tempfile.mkdtemp(prefix="targetfiles-")
   OPTIONS.tempfiles.append(tmp)
-  cmd = ["unzip", "-o", "-q", filename, "-d", tmp]
-  if pattern is not None:
-    cmd.append(pattern)
-  p = Run(cmd, stdout=subprocess.PIPE)
-  p.communicate()
-  if p.returncode != 0:
-    raise ExternalError("failed to unzip input target-files \"%s\"" %
-                        (filename,))
-  return tmp
+
+  def unzip_to_dir(filename, dirname):
+    cmd = ["unzip", "-o", "-q", filename, "-d", dirname]
+    if pattern is not None:
+      cmd.append(pattern)
+    p = Run(cmd, stdout=subprocess.PIPE)
+    p.communicate()
+    if p.returncode != 0:
+      raise ExternalError("failed to unzip input target-files \"%s\"" %
+                          (filename,))
+
+  m = re.match(r"^(.*[.]zip)\+(.*[.]zip)$", filename, re.IGNORECASE)
+  if m:
+    unzip_to_dir(m.group(1), tmp)
+    unzip_to_dir(m.group(2), os.path.join(tmp, "BOOTABLE_IMAGES"))
+    filename = m.group(1)
+  else:
+    unzip_to_dir(filename, tmp)
+
+  return tmp, zipfile.ZipFile(filename, "r")
 
 
 def GetKeyPasswords(keylist):
@@ -331,6 +368,10 @@ def SignFile(input_name, output_name, key, password, align=None,
   zip file.
   """
 
+  if os.environ.get('CM_FAST_BUILD', False):
+    shutil.copy(input_name, output_name)
+    return
+
   if align == 0 or align == 1:
     align = None
 
@@ -340,8 +381,14 @@ def SignFile(input_name, output_name, key, password, align=None,
   else:
     sign_name = output_name
 
-  cmd = ["java", "-Xmx512m", "-jar",
+  check = (sys.maxsize > 2**32)
+  if check is True:
+    cmd = ["java", "-Xmx2048m", "-jar",
            os.path.join(OPTIONS.search_path, "framework", "signapk.jar")]
+  else:
+    cmd = ["java", "-Xmx1024m", "-jar",
+           os.path.join(OPTIONS.search_path, "framework", "signapk.jar")]
+
   if whole_file:
     cmd.append("-w")
   cmd.extend([key + ".x509.pem", key + ".pk8",
@@ -374,14 +421,16 @@ def CheckSize(data, target, info_dict):
     if mount_point == "/userdata": mount_point = "/data"
     p = info_dict["fstab"][mount_point]
     fs_type = p.fs_type
-    limit = info_dict.get(p.device + "_size", None)
+    device = p.device
+    if "/" in device:
+      device = device[device.rfind("/")+1:]
+    limit = info_dict.get(device + "_size", None)
   if not fs_type or not limit: return
 
   if fs_type == "yaffs2":
     # image size should be increased by 1/64th to account for the
     # spare area (64 bytes per 2k page)
     limit = limit / 2048 * (2048+64)
-
   size = len(data)
   pct = float(size) * 100.0 / limit
   msg = "%s size (%d) is %.2f%% of limit (%d)" % (target, size, pct, limit)
@@ -645,6 +694,10 @@ class DeviceSpecificParams(object):
     assertions they like."""
     return self._DoCall("FullOTA_Assertions")
 
+  def FullOTA_InstallBegin(self):
+    """Called at the start of full OTA installation."""
+    return self._DoCall("FullOTA_InstallBegin")
+
   def FullOTA_InstallEnd(self):
     """Called at the end of full OTA installation; typically this is
     used to install the image for the device's baseband processor."""
@@ -656,11 +709,22 @@ class DeviceSpecificParams(object):
     additional assertions they like."""
     return self._DoCall("IncrementalOTA_Assertions")
 
+  def IncrementalOTA_VerifyBegin(self):
+    """Called at the start of the verification phase of incremental
+    OTA installation; additional checks can be placed here to abort
+    the script before any changes are made."""
+    return self._DoCall("IncrementalOTA_VerifyBegin")
+
   def IncrementalOTA_VerifyEnd(self):
     """Called at the end of the verification phase of incremental OTA
     installation; additional checks can be placed here to abort the
     script before any changes are made."""
     return self._DoCall("IncrementalOTA_VerifyEnd")
+
+  def IncrementalOTA_InstallBegin(self):
+    """Called at the start of incremental OTA installation (after
+    verification is complete)."""
+    return self._DoCall("IncrementalOTA_InstallBegin")
 
   def IncrementalOTA_InstallEnd(self):
     """Called at the end of incremental OTA installation; typically
@@ -673,7 +737,14 @@ class File(object):
     self.name = name
     self.data = data
     self.size = len(data)
-    self.sha1 = hashlib.sha1(data).hexdigest()
+    self.sha1 = sha1(data).hexdigest()
+
+  @classmethod
+  def FromLocalFile(cls, name, diskname):
+    f = open(diskname, "rb")
+    data = f.read()
+    f.close()
+    return File(name, data)
 
   def WriteToTemp(self):
     t = tempfile.NamedTemporaryFile()
@@ -791,10 +862,14 @@ def ComputeDifferences(diffs):
 
 
 # map recovery.fstab's fs_types to mount/format "partition types"
-PARTITION_TYPES = { "yaffs2": "MTD", "mtd": "MTD",
-                    "ext2": "EMMC", "ext3": "EMMC",
-                    "ext4": "EMMC", "vfat": "EMMC",
-                    "emmc": "EMMC", "bml" : "BML" }
+PARTITION_TYPES = { "bml": "BML",
+                    "ext2": "EMMC",
+                    "ext3": "EMMC",
+                    "ext4": "EMMC",
+                    "emmc": "EMMC",
+                    "mtd": "MTD",
+                    "yaffs2": "MTD",
+                    "vfat": "EMMC" }
 
 def GetTypeAndDevice(mount_point, info):
   fstab = info["fstab"]

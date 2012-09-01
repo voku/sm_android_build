@@ -15,32 +15,50 @@
 #
 
 # This is a build configuration for a full-featured build of the
-# Open-Source part of the tree. This is a base configuration to
-# bes used for AOSP builds on various target devices.
+# Open-Source part of the tree. It's geared toward a US-centric
+# build of the emulator, but all those aspects can be overridden
+# in inherited configurations.
 
 PRODUCT_PACKAGES := \
-    OpenWnn \
-    PinyinIME \
-    VoiceDialer \
-    libWnnEngDic \
-    libWnnJpnDic \
-    libwnndict
+    drmserver \
+    libdrmframework \
+    libdrmframework_jni \
+    libfwdlockengine \
+    VideoEditor \
+    WAPPushManager
+
+PRODUCT_PACKAGES += \
+    Galaxy4 \
+    HoloSpiralWallpaper \
+    LiveWallpapers \
+    LiveWallpapersPicker \
+    MagicSmokeWallpapers \
+    NoiseField \
+    PhaseBeam \
+    VisualizationWallpapers
+
+PRODUCT_PACKAGES += \
+    libvideoeditor_jni \
+    libvideoeditor_core \
+    libvideoeditor_osal \
+    libvideoeditor_videofilters \
+    libvideoeditorplayer
 
 # Additional settings used in all AOSP builds
 PRODUCT_PROPERTY_OVERRIDES := \
-    keyguard.no_require_sim=true
+    ro.com.android.dateformat=MM-dd-yyyy
 
-# Put en_US first in the list, to make it default.
+# Put en_US first in the list, so make it default.
 PRODUCT_LOCALES := en_US
 
-# Pick up some sounds - stick with the short list to save space
-# on smaller devices.
-$(call inherit-product-if-exists, frameworks/base/data/sounds/OriginalAudio.mk)
+# Get some sounds
+$(call inherit-product-if-exists, frameworks/base/data/sounds/AllAudio.mk)
 
 # Get the TTS language packs
 $(call inherit-product-if-exists, external/svox/pico/lang/all_pico_languages.mk)
 
-# Get the list of languages.
-$(call inherit-product, $(SRC_TARGET_DIR)/product/languages_full.mk)
+# Get a list of languages.
+$(call inherit-product, $(SRC_TARGET_DIR)/product/locales_full.mk)
 
-$(call inherit-product, $(SRC_TARGET_DIR)/product/generic.mk)
+# Get everything else from the parent package
+$(call inherit-product, $(SRC_TARGET_DIR)/product/generic_no_telephony.mk)

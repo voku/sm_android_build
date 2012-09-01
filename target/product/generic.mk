@@ -14,37 +14,11 @@
 # limitations under the License.
 #
 
-# This is a generic product that isn't specialized for a specific device.
+# This is a generic phone product that isn't specialized for a specific device.
 # It includes the base Android platform.
 
-PRODUCT_PACKAGES := \
-    AccountAndSyncSettings \
-    DeskClock \
-    AlarmProvider \
-    Bluetooth \
-    Calculator \
-    Calendar \
-    Camera \
-    CertInstaller \
-    DrmProvider \
-    Email \
-    Gallery3D \
-    LatinIME \
-    Launcher2 \
-    Mms \
-    Music \
-    Provision \
-    Protips \
-    QuickSearchBox \
-    Settings \
-    Superuser \
-    Sync \
-    SystemUI \
-    Updater \
-    CalendarProvider \
-    SyncProvider
-
-$(call inherit-product, $(SRC_TARGET_DIR)/product/core.mk)
+$(call inherit-product, $(SRC_TARGET_DIR)/product/generic_no_telephony.mk)
+$(call inherit-product, $(SRC_TARGET_DIR)/product/telephony.mk)
 
 # Overrides
 PRODUCT_BRAND := generic

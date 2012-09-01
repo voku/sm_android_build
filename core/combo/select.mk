@@ -47,7 +47,7 @@ $(combo_target)HAVE_STRLCAT := 0
 $(combo_target)HAVE_KERNEL_MODULES := 0
 
 $(combo_target)GLOBAL_CFLAGS := -fno-exceptions -Wno-multichar
-$(combo_target)RELEASE_CFLAGS := -O3 -g -fno-strict-aliasing
+$(combo_target)RELEASE_CFLAGS := -O2 -g -fno-strict-aliasing
 $(combo_target)GLOBAL_LDFLAGS :=
 $(combo_target)GLOBAL_ARFLAGS := crsP
 
@@ -56,23 +56,52 @@ $(combo_target)SHLIB_SUFFIX := .so
 $(combo_target)JNILIB_SUFFIX := $($(combo_target)SHLIB_SUFFIX)
 $(combo_target)STATIC_LIB_SUFFIX := .a
 
-ifneq ($(TARGET_USES_2G_VM_SPLIT),true)
-$(combo_target)PRELINKER_MAP := $(BUILD_SYSTEM)/prelink-$(combo_os_arch).map
-else
-$(combo_target)PRELINKER_MAP := $(BUILD_SYSTEM)/prelink-$(combo_os_arch)-2G.map
-endif
-
 # Now include the combo for this specific target.
 include $(BUILD_COMBOS)/$(combo_target)$(combo_os_arch).mk
 
 ifneq ($(USE_CCACHE),)
-  ccache := prebuilt/$(HOST_PREBUILT_TAG)/ccache/ccache
-  # prepend ccache if necessary
-  ifneq ($(ccache),$(firstword $($(combo_target)CC)))
-    $(combo_target)CC := $(ccache) $($(combo_target)CC)
+  # The default check uses size and modification time, causing false misses
+  # since the mtime depends when the repo was checked out
+  export CCACHE_COMPILERCHECK := content
+
+  # See man page, optimizations to get more cache hits
+  # implies that __DATE__ and __TIME__ are not critical for functionality.
+  # Ignore include file modification time since it will depend on when
+  # the repo was checked out
+  export CCACHE_SLOPPINESS := time_macros,include_file_mtime,file_macro
+
+  # Turn all preprocessor absolute paths into relative paths.
+  # Fixes absolute paths in preprocessed source due to use of -g.
+  # We don't really use system headers much so the rootdir is
+  # fine; ensures these paths are relative for all Android trees
+  # on a workstation.
+  export CCACHE_BASEDIR := /
+
+  CCACHE_HOST_TAG := $(HOST_PREBUILT_TAG)
+  # If we are cross-compiling Windows binaries on Linux
+  # then use the linux ccache binary instead.
+  ifeq ($(HOST_OS)-$(BUILD_OS),windows-linux)
+    CCACHE_HOST_TAG := linux-$(BUILD_ARCH)
   endif
-  ifneq ($(ccache),$(firstword $($(combo_target)CXX)))
-    $(combo_target)CXX := $(ccache) $($(combo_target)CXX)
+  CCACHE_HOST_EXTRA_TAG := $(subst $(HOST_PREBUILT_TAG),$(CCACHE_HOST_TAG),$(HOST_PREBUILT_EXTRA_TAG))
+
+  # search executable
+  ifneq ($(strip $(wildcard prebuilts/misc/$(CCACHE_HOST_EXTRA_TAG)/ccache/ccache)),)
+    ccache := prebuilts/misc/$(CCACHE_HOST_EXTRA_TAG)/ccache/ccache
+  else
+    ifneq ($(strip $(wildcard prebuilts/misc/$(CCACHE_HOST_TAG)/ccache/ccache)),)
+      ccache := prebuilts/misc/$(CCACHE_HOST_TAG)/ccache/ccache
+    endif
   endif
-  ccache =
+
+  ifdef ccache
+    # prepend ccache if necessary
+    ifneq ($(ccache),$(firstword $($(combo_target)CC)))
+      $(combo_target)CC := $(ccache) $($(combo_target)CC)
+    endif
+    ifneq ($(ccache),$(firstword $($(combo_target)CXX)))
+      $(combo_target)CXX := $(ccache) $($(combo_target)CXX)
+    endif
+    ccache =
+  endif
 endif

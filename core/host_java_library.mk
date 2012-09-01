@@ -27,10 +27,14 @@ ifeq ($(LOCAL_BUILD_HOST_DEX),true)
 intermediates := $(call local-intermediates-dir)
 intermediates.COMMON := $(call local-intermediates-dir,COMMON)
 
+full_classes_compiled_jar := $(intermediates.COMMON)/classes-full-debug.jar
+full_classes_jarjar_jar := $(intermediates.COMMON)/classes-jarjar.jar
 full_classes_jar := $(intermediates.COMMON)/classes.jar
 built_dex := $(intermediates.COMMON)/classes.dex
 
 LOCAL_INTERMEDIATE_TARGETS += \
+    $(full_classes_compiled_jar) \
+    $(full_classes_jarjar_jar) \
     $(full_classes_jar) \
     $(built_dex)
 
@@ -47,9 +51,26 @@ $(LOCAL_INTERMEDIATE_TARGETS): \
 
 $(cleantarget): PRIVATE_CLEAN_FILES += $(intermediates.COMMON)
 
-$(full_classes_jar): PRIVATE_JAVACFLAGS := $(LOCAL_JAVACFLAGS)
-$(full_classes_jar): $(java_sources) $(java_resource_sources) $(full_java_lib_deps) $(jar_manifest_file)
+$(full_classes_compiled_jar): PRIVATE_JAVACFLAGS := $(LOCAL_JAVACFLAGS)
+$(full_classes_compiled_jar): PRIVATE_JAR_EXCLUDE_FILES :=
+$(full_classes_compiled_jar): $(java_sources) $(java_resource_sources) $(full_java_lib_deps) $(jar_manifest_file)
 	$(transform-host-java-to-package)
+
+# Run jarjar if necessary, otherwise just copy the file.
+ifneq ($(strip $(LOCAL_JARJAR_RULES)),)
+$(full_classes_jarjar_jar): PRIVATE_JARJAR_RULES := $(LOCAL_JARJAR_RULES)
+$(full_classes_jarjar_jar): $(full_classes_compiled_jar) | $(JARJAR)
+	@echo JarJar: $@
+	$(hide) java -jar $(JARJAR) process $(PRIVATE_JARJAR_RULES) $< $@
+else
+$(full_classes_jarjar_jar): $(full_classes_compiled_jar) | $(ACP)
+	@echo Copying: $@
+	$(hide) $(ACP) -fp $< $@
+endif
+
+$(full_classes_jar): $(full_classes_jarjar_jar) | $(ACP)
+	@echo Copying: $@
+	$(hide) $(ACP) -fp $< $@
 
 $(built_dex): PRIVATE_INTERMEDIATES_DIR := $(intermediates.COMMON)
 $(built_dex): PRIVATE_DX_FLAGS := $(LOCAL_DX_FLAGS)
@@ -58,7 +79,7 @@ $(built_dex): $(full_classes_jar) $(DX)
 
 $(LOCAL_BUILT_MODULE): PRIVATE_DEX_FILE := $(built_dex)
 $(LOCAL_BUILT_MODULE): $(built_dex) $(java_resource_sources) | $(AAPT)
-	@echo -e ${CL_PFX}"Host Jar:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
+	@echo "Host Jar: $(PRIVATE_MODULE) ($@)"
 	$(create-empty-package)
 	$(add-dex-to-package)
 ifneq ($(extra_jar_args),)
@@ -67,6 +88,7 @@ endif
 
 else
 $(LOCAL_BUILT_MODULE): PRIVATE_JAVACFLAGS := $(LOCAL_JAVACFLAGS)
+$(LOCAL_BUILT_MODULE): PRIVATE_JAR_EXCLUDE_FILES :=
 $(LOCAL_BUILT_MODULE): $(java_sources) $(java_resource_sources) $(full_java_lib_deps) $(jar_manifest_file)
 	$(transform-host-java-to-package)
 endif  # LOCAL_BUILD_HOST_DEX

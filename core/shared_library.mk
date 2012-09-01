@@ -13,11 +13,11 @@ endif
 ifeq ($(strip $(LOCAL_MODULE_SUFFIX)),)
 LOCAL_MODULE_SUFFIX := $(TARGET_SHLIB_SUFFIX)
 endif
-ifeq ($(strip $(LOCAL_PRELINK_MODULE)),)
-LOCAL_PRELINK_MODULE := $(strip $(TARGET_PRELINK_MODULE))
-endif
 ifneq ($(strip $(OVERRIDE_BUILT_MODULE_PATH)),)
 $(error $(LOCAL_PATH): Illegal use of OVERRIDE_BUILT_MODULE_PATH)
+endif
+ifneq ($(strip $(LOCAL_MODULE_STEM)$(LOCAL_BUILT_MODULE_STEM)),)
+$(error $(LOCAL_PATH): Can not set module stem for a library)
 endif
 
 # Put the built targets of all shared libraries in a common directory
@@ -34,12 +34,15 @@ my_target_libgcc := $(TARGET_LIBGCC)
 my_target_crtbegin_so_o := $(TARGET_CRTBEGIN_SO_O)
 my_target_crtend_so_o := $(TARGET_CRTEND_SO_O)
 ifdef LOCAL_NDK_VERSION
-my_target_global_ld_dirs += -L$(my_ndk_version_root)/usr/lib
-# The latest ndk does NOT support TARGET_CRTBEGIN_SO_O and TARGET_CRTEND_SO_O yet.
-# my_target_crtbegin_so_o := $(my_ndk_version_root)/usr/lib/crtbegin_so.o
-# my_target_crtend_so_o := $(my_ndk_version_root)/usr/lib/crtend_so.o
-my_target_crtbegin_so_o :=
-my_target_crtend_so_o :=
+# Make sure the prebuilt NDK paths are put ahead of the TARGET_GLOBAL_LD_DIRS,
+# so we don't have race condition when the system libraries (such as libc, libstdc++) are also built in the tree.
+my_target_global_ld_dirs := \
+    $(addprefix -L, $(patsubst %/,%,$(dir $(my_ndk_stl_shared_lib_fullpath))) \
+    $(my_ndk_version_root)/usr/lib) \
+    $(my_target_global_ld_dirs)
+my_target_global_ldflags := $(my_ndk_stl_shared_lib) $(my_target_global_ldflags)
+my_target_crtbegin_so_o := $(wildcard $(my_ndk_version_root)/usr/lib/crtbegin_so.o)
+my_target_crtend_so_o := $(wildcard $(my_ndk_version_root)/usr/lib/crtend_so.o)
 endif
 $(linked_module): PRIVATE_TARGET_GLOBAL_LD_DIRS := $(my_target_global_ld_dirs)
 $(linked_module): PRIVATE_TARGET_GLOBAL_LDFLAGS := $(my_target_global_ldflags)

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+ifneq ($(TARGET_BUILD_PDK),true)
 LOCAL_PATH := $(call my-dir)
 
 # We use copy-file-to-new-target so that the installed
@@ -29,16 +30,11 @@ LOCAL_MODULE := apicheck
 
 include $(BUILD_SYSTEM)/base_rules.mk
 
-$(LOCAL_BUILT_MODULE): $(HOST_OUT_JAVA_LIBRARIES)/apicheck$(COMMON_JAVA_PACKAGE_SUFFIX)
+$(LOCAL_BUILT_MODULE): $(HOST_OUT_JAVA_LIBRARIES)/doclava$(COMMON_JAVA_PACKAGE_SUFFIX)
 $(LOCAL_BUILT_MODULE): $(LOCAL_PATH)/etc/apicheck | $(ACP)
 	@echo "Copy: $(PRIVATE_MODULE) ($@)"
 	$(copy-file-to-new-target)
 	$(hide) chmod 755 $@
 
-# the other stuff
-# ============================================================
-subdirs := $(addprefix $(LOCAL_PATH)/,$(addsuffix /Android.mk, \
-		src \
-	))
-
-include $(subdirs)
+# Apicheck is now part of Doclava -- See external/doclava.
+endif
